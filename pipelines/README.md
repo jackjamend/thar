@@ -23,10 +23,16 @@ pipelines/
   requirements.txt
   caregap/
     capabilities.py     # capability taxonomy and deterministic extraction
+    health_access_validation.py # source health_access_records validation
     scoring.py          # district gap scoring
     lakebase_io.py      # future Lakebase read/write helpers
     llm.py              # future LLM enrichment helpers
   scripts/
+    export_health_access_records.py # export source Lakebase table to CSV
+    rebuild_health_access_records_from_uc.py # rebuild source snapshot from UC tables
+    load_health_access_records.py # load rebuilt snapshot into Lakebase
+    repair_health_access_records.py # quarantine structurally invalid source rows
+    validate_health_access_records.py # validate source CSV before extraction
     verify_data.py      # inspect descriptions and capability coverage
     extract_claims.py   # create facility capability claim rows
     score_gaps.py       # create district gap score rows
@@ -48,13 +54,30 @@ pipelines/
    - `description`
    - NFHS district indicator columns, where available
 
-2. Run data verification:
+   To export from Lakebase using the explicit supported schema:
+
+   ```bash
+   python pipelines/scripts/export_health_access_records.py \
+     --output data/health_access_records.csv
+   ```
+
+2. Validate the source snapshot before extraction:
+
+   ```bash
+   python pipelines/scripts/validate_health_access_records.py \
+     --input data/health_access_records.csv \
+     --quarantine-output data/health_access_records_quarantine.csv
+   ```
+
+   Source validation fails on structural problems such as malformed facility IDs, shifted JSON/coordinates in scalar columns, blank facility names, and description-column drift. It warns on softer description quality issues.
+
+3. Run data verification:
 
    ```bash
    python pipelines/scripts/verify_data.py --input data/health_access_records.csv
    ```
 
-3. Extract capability claims:
+4. Extract capability claims:
 
    ```bash
    python pipelines/scripts/extract_claims.py \
@@ -62,7 +85,7 @@ pipelines/
      --output data/caregap_facility_claims.csv
    ```
 
-4. Score district gaps:
+5. Score district gaps:
 
    ```bash
    python pipelines/scripts/score_gaps.py \
@@ -71,7 +94,7 @@ pipelines/
      --output data/caregap_district_gaps.csv
    ```
 
-5. Or run extraction and all care-need scoring together:
+6. Or run extraction and all care-need scoring together:
 
    ```bash
    python pipelines/scripts/run_all.py \
@@ -79,13 +102,69 @@ pipelines/
      --out-dir data
    ```
 
-6. Load the generated tables into Lakebase for the app to read:
+7. Load the generated tables into Lakebase for the app to read:
 
    ```bash
    python pipelines/scripts/load_prepared_tables.py \
      --claims data/caregap_facility_claims.csv \
      --gaps data/caregap_district_gaps.csv
    ```
+
+## Repairing `public.health_access_records`
+
+If source validation fails against the Lakebase table, prefer starting fresh from the three source datasets in Unity Catalog.
+
+The default source schema is:
+
+```text
+databricks_virtue_foundation_dataset_dais_2026.virtue_foundation_dataset
+```
+
+Run the rebuild script on Databricks/Spark, either as a notebook/job task or with `spark-submit` in the workspace. It auto-discovers facility, pincode/post-office, and district indicator tables by their columns; pass explicit table names if discovery picks the wrong table.
+
+```bash
+python pipelines/scripts/rebuild_health_access_records_from_uc.py \
+  --output-path /Volumes/<catalog>/<schema>/<volume>/health_access_records_csv
+```
+
+For explicit table selection:
+
+```bash
+python pipelines/scripts/rebuild_health_access_records_from_uc.py \
+  --facility-table <facility_source_table> \
+  --pincode-table <pincode_source_table> \
+  --district-table <district_source_table> \
+  --output-path /Volumes/<catalog>/<schema>/<volume>/health_access_records_csv
+```
+
+Copy the generated CSV part file to `data/health_access_records.csv`, validate it, then load it into Lakebase:
+
+```bash
+python pipelines/scripts/validate_health_access_records.py \
+  --input data/health_access_records.csv
+
+python pipelines/scripts/load_health_access_records.py \
+  --input data/health_access_records.csv
+
+python pipelines/scripts/load_health_access_records.py \
+  --input data/health_access_records.csv \
+  --apply
+```
+
+The first load command creates `public.health_access_records_candidate` and does not replace the live table. The `--apply` command backs up the live table and swaps in the candidate.
+
+If you only need a guarded Lakebase-side cleanup for obvious structural failures in the existing table, run:
+
+```bash
+python pipelines/scripts/repair_health_access_records.py
+```
+
+That dry run creates:
+
+- `public.health_access_records_candidate`
+- `public.health_access_records_quarantine`
+
+It does not replace the source table unless you explicitly pass `--apply`. This repair only quarantines malformed rows; it cannot recover descriptions that were already joined to the wrong facility without the original source keys.
 
 ## Target Output Tables
 

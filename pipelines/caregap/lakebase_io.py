@@ -14,6 +14,9 @@ def lakebase_connection() -> Iterator[object]:
     `pipelines/requirements.txt`.
     """
     import psycopg
+    from dotenv import load_dotenv
+
+    load_dotenv()
 
     conn = psycopg.connect(
         host=_env("DATABRICKS_POSTGRES_HOST", "PGHOST"),

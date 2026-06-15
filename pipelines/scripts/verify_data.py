@@ -10,6 +10,7 @@ from statistics import median
 sys.path.append(str(Path(__file__).resolve().parents[1]))
 
 from caregap.capabilities import CARE_NEEDS, extract_facility_claims, summarize_capability_coverage
+from caregap.health_access_validation import print_validation_report, validate_health_access_records
 from caregap.locations import enrich_facility_locations
 
 MATERNAL_NEED = "maternal_emergency"
@@ -22,6 +23,9 @@ def main() -> None:
     args = parser.parse_args()
 
     records = _read_csv(args.input)
+    source_report = validate_health_access_records(records)
+    print_validation_report(source_report, max_examples=8)
+    print()
     verified_records = enrich_facility_locations(records)
     facilities = [row for row in verified_records if row.get("record_type") == "facility"]
     districts = [row for row in records if row.get("record_type") == "district"]

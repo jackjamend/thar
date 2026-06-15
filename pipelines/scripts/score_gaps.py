@@ -8,6 +8,7 @@ from pathlib import Path
 sys.path.append(str(Path(__file__).resolve().parents[1]))
 
 from caregap.capabilities import CARE_NEEDS
+from caregap.health_access_validation import print_validation_report, validate_health_access_records
 from caregap.scoring import score_district_gaps
 
 
@@ -38,9 +39,12 @@ def main() -> None:
     parser.add_argument("--claims", required=True, help="CSV of caregap_facility_claims.")
     parser.add_argument("--output", required=True, help="Output CSV path for caregap_district_gaps.")
     parser.add_argument("--care-need", choices=[*CARE_NEEDS.keys(), "all"], default="all")
+    parser.add_argument("--skip-source-validation", action="store_true", help="Allow scoring from structurally invalid source data.")
     args = parser.parse_args()
 
     records = _read_csv(args.input)
+    if not args.skip_source_validation:
+        _validate_source(records)
     claims = _read_csv(args.claims)
     care_needs = CARE_NEEDS.keys() if args.care_need == "all" else [args.care_need]
     gaps = [gap for care_need in care_needs for gap in score_district_gaps(records, claims, care_need=care_need)]
@@ -51,6 +55,13 @@ def main() -> None:
 def _read_csv(path: str) -> list[dict[str, str]]:
     with open(path, newline="", encoding="utf-8") as handle:
         return list(csv.DictReader(handle))
+
+
+def _validate_source(records: list[dict[str, str]]) -> None:
+    report = validate_health_access_records(records)
+    if report.error_count:
+        print_validation_report(report)
+        raise SystemExit("Source validation failed. Fix health_access_records.csv or pass --skip-source-validation.")
 
 
 def _write_csv(path: str, rows: list[dict[str, str]]) -> None:
