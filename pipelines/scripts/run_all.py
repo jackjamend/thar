@@ -52,14 +52,19 @@ def main() -> None:
     parser = argparse.ArgumentParser(description="Run the CareGap pipeline locally.")
     parser.add_argument("--input", required=True, help="CSV export of health_access_records.")
     parser.add_argument("--out-dir", required=True, help="Directory for generated CSV outputs.")
-    parser.add_argument("--care-need", choices=CARE_NEEDS.keys(), default="maternal_emergency")
+    parser.add_argument("--care-need", choices=[*CARE_NEEDS.keys(), "all"], default="all")
     args = parser.parse_args()
 
     out_dir = Path(args.out_dir)
     records = _read_csv(args.input)
     enriched_records = enrich_facility_locations(records)
     claims = extract_facility_claims(enriched_records)
-    gaps = score_district_gaps(enriched_records, claims, care_need=args.care_need)
+    care_needs = CARE_NEEDS.keys() if args.care_need == "all" else [args.care_need]
+    gaps = [
+        gap
+        for care_need in care_needs
+        for gap in score_district_gaps(enriched_records, claims, care_need=care_need)
+    ]
 
     _write_csv(out_dir / "caregap_facility_claims.csv", claims, CLAIM_FIELDS)
     _write_csv(out_dir / "caregap_district_gaps.csv", gaps, GAP_FIELDS)

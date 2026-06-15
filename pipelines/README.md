@@ -71,7 +71,21 @@ pipelines/
      --output data/caregap_district_gaps.csv
    ```
 
-5. Load the generated tables into Lakebase or a synced table for the app to read.
+5. Or run extraction and all care-need scoring together:
+
+   ```bash
+   python pipelines/scripts/run_all.py \
+     --input data/health_access_records.csv \
+     --out-dir data
+   ```
+
+6. Load the generated tables into Lakebase for the app to read:
+
+   ```bash
+   python pipelines/scripts/load_prepared_tables.py \
+     --claims data/caregap_facility_claims.csv \
+     --gaps data/caregap_district_gaps.csv
+   ```
 
 ## Target Output Tables
 

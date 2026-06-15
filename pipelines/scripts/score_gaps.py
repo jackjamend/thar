@@ -37,12 +37,13 @@ def main() -> None:
     parser.add_argument("--input", required=True, help="CSV export of health_access_records.")
     parser.add_argument("--claims", required=True, help="CSV of caregap_facility_claims.")
     parser.add_argument("--output", required=True, help="Output CSV path for caregap_district_gaps.")
-    parser.add_argument("--care-need", choices=CARE_NEEDS.keys(), default="maternal_emergency")
+    parser.add_argument("--care-need", choices=[*CARE_NEEDS.keys(), "all"], default="all")
     args = parser.parse_args()
 
     records = _read_csv(args.input)
     claims = _read_csv(args.claims)
-    gaps = score_district_gaps(records, claims, care_need=args.care_need)
+    care_needs = CARE_NEEDS.keys() if args.care_need == "all" else [args.care_need]
+    gaps = [gap for care_need in care_needs for gap in score_district_gaps(records, claims, care_need=care_need)]
     _write_csv(args.output, gaps)
     print(f"Wrote {len(gaps):,} district gap scores to {args.output}")
 

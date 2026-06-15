@@ -16,12 +16,12 @@ def lakebase_connection() -> Iterator[object]:
     import psycopg
 
     conn = psycopg.connect(
-        host=os.environ["DATABRICKS_POSTGRES_HOST"],
-        port=os.environ.get("DATABRICKS_POSTGRES_PORT", "5432"),
-        dbname=os.environ["DATABRICKS_POSTGRES_DATABASE"],
-        user=os.environ["DATABRICKS_POSTGRES_USER"],
-        password=os.environ["DATABRICKS_POSTGRES_PASSWORD"],
-        sslmode=os.environ.get("DATABRICKS_POSTGRES_SSLMODE", "require"),
+        host=_env("DATABRICKS_POSTGRES_HOST", "PGHOST"),
+        port=os.environ.get("DATABRICKS_POSTGRES_PORT", os.environ.get("PGPORT", "5432")),
+        dbname=_env("DATABRICKS_POSTGRES_DATABASE", "PGDATABASE"),
+        user=_env("DATABRICKS_POSTGRES_USER", "PGUSER", "USER"),
+        password=_env("DATABRICKS_POSTGRES_PASSWORD", "PGPASSWORD"),
+        sslmode=os.environ.get("DATABRICKS_POSTGRES_SSLMODE", os.environ.get("PGSSLMODE", "require")),
     )
     try:
         yield conn
@@ -29,3 +29,10 @@ def lakebase_connection() -> Iterator[object]:
     finally:
         conn.close()
 
+
+def _env(*names: str) -> str:
+    for name in names:
+        value = os.environ.get(name)
+        if value:
+            return value
+    raise KeyError(f"Missing environment variable; tried {', '.join(names)}")

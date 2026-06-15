@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState } from 'react';
+import { useCallback, useEffect, useMemo, useState } from 'react';
 import {
   Alert,
   AlertDescription,
@@ -28,14 +28,18 @@ import {
   Flag,
   MapPin,
   RefreshCw,
+  Save,
   ShieldQuestion,
   Star,
 } from 'lucide-react';
 
 type CareNeed = 'maternal_emergency' | 'critical_care' | 'dialysis_access';
+type SourceLabel = 'lakebase' | 'csv-fallback';
+type EvidenceLabel = 'strong' | 'partial' | 'weak' | 'missing' | 'conflicting';
 
 type ReviewQueueResponse = {
   careNeed: string;
+  source: SourceLabel;
   states: string[];
   queue: DistrictGap[];
 };
@@ -75,13 +79,45 @@ type FacilityClaim = {
   updated_at: string;
 };
 
-type EvidenceLabel = 'strong' | 'partial' | 'weak' | 'missing' | 'conflicting';
-
 type PlannerActions = {
   shortlisted: boolean;
-  verification: boolean;
+  verificationRequested: boolean;
   dismissed: boolean;
-  note: string;
+  noteLatest: string;
+  overrideScore: number | null;
+  overrideReason: string;
+};
+
+type FacilityVerification = {
+  requested: boolean;
+  reason: string;
+};
+
+type ActionsResponse = {
+  districtActions: Array<{
+    districtName: string;
+    state: string;
+    shortlisted: boolean;
+    dismissed: boolean;
+    verificationRequested: boolean;
+  }>;
+  latestNotes: Array<{
+    districtName: string;
+    state: string;
+    noteLatest: string;
+  }>;
+  scoreOverrides: Array<{
+    districtName: string;
+    state: string;
+    overrideScore: number | null;
+    overrideReason: string;
+  }>;
+  facilityVerifications: Array<{
+    facilityId: string;
+    capability: string;
+    requested: boolean;
+    reason: string;
+  }>;
 };
 
 const CARE_NEEDS: { value: CareNeed; label: string }[] = [
@@ -110,6 +146,15 @@ const CAPABILITY_LABELS: Record<string, string> = {
   dialysis: 'Dialysis',
 };
 
+const EMPTY_ACTIONS: PlannerActions = {
+  shortlisted: false,
+  verificationRequested: false,
+  dismissed: false,
+  noteLatest: '',
+  overrideScore: null,
+  overrideReason: '',
+};
+
 function formatScore(value: number) {
   return Number(value ?? 0).toFixed(1);
 }
@@ -118,8 +163,8 @@ function formatNumber(value: number) {
   return Number(value ?? 0).toLocaleString();
 }
 
-async function fetchJson<T>(url: string): Promise<T> {
-  const response = await fetch(url);
+async function fetchJson<T>(url: string, init?: RequestInit): Promise<T> {
+  const response = await fetch(url, init);
   const payload = (await response.json()) as T & { error?: string };
   if (!response.ok) throw new Error(payload.error ?? response.statusText);
   return payload;
@@ -142,8 +187,24 @@ function scoreWidth(value: number) {
   return `${Math.max(3, Math.min(100, value))}%`;
 }
 
-function actionKey(district: DistrictGap) {
-  return `${district.state}:${district.district_name}`;
+function districtKeyFromParts(state: string, districtName: string) {
+  return `${state.trim()}:${districtName.trim()}`;
+}
+
+function districtKey(district: DistrictGap) {
+  return districtKeyFromParts(district.state, district.district_name);
+}
+
+function facilityKeyFromParts(facilityId: string, capability: string) {
+  return `${facilityId}:${capability}`;
+}
+
+function facilityKey(claim: FacilityClaim) {
+  return facilityKeyFromParts(claim.facility_id, claim.capability);
+}
+
+function mergeActions(base: PlannerActions, patch: Partial<PlannerActions>): PlannerActions {
+  return { ...base, ...patch };
 }
 
 export default function App() {
@@ -154,15 +215,18 @@ export default function App() {
   const [selectedId, setSelectedId] = useState<string | null>(null);
   const [claims, setClaims] = useState<FacilityClaim[]>([]);
   const [actions, setActions] = useState<Record<string, PlannerActions>>({});
+  const [facilityVerifications, setFacilityVerifications] = useState<Record<string, FacilityVerification>>({});
   const [queueLoading, setQueueLoading] = useState(true);
   const [claimsLoading, setClaimsLoading] = useState(false);
+  const [savingKey, setSavingKey] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
 
-  const queue = queueResponse?.queue ?? [];
-  const selectedDistrict = queue.find((district) => district.district_id === selectedId) ?? queue[0] ?? null;
-  const selectedActions = selectedDistrict
-    ? actions[actionKey(selectedDistrict)] ?? { shortlisted: false, verification: false, dismissed: false, note: '' }
-    : null;
+  const queue = useMemo(() => queueResponse?.queue ?? [], [queueResponse]);
+  const selectedDistrict = useMemo(
+    () => queue.find((district) => district.district_id === selectedId) ?? queue[0] ?? null,
+    [queue, selectedId],
+  );
+  const selectedActions = selectedDistrict ? actions[districtKey(selectedDistrict)] ?? EMPTY_ACTIONS : null;
 
   const queueStats = useMemo(
     () => ({
@@ -173,7 +237,7 @@ export default function App() {
     [queue],
   );
 
-  const refreshQueue = async () => {
+  const refreshQueue = useCallback(async () => {
     setQueueLoading(true);
     setError(null);
     try {
@@ -197,11 +261,56 @@ export default function App() {
     } finally {
       setQueueLoading(false);
     }
-  };
+  }, [careNeed, evidenceFilter, stateFilter]);
+
+  const refreshActions = useCallback(async () => {
+    try {
+      const payload = await fetchJson<ActionsResponse>(`/api/caregap/actions?careNeed=${encodeURIComponent(careNeed)}`);
+      const nextActions: Record<string, PlannerActions> = {};
+      const nextFacilityVerifications: Record<string, FacilityVerification> = {};
+
+      for (const action of payload.districtActions) {
+        const key = districtKeyFromParts(action.state, action.districtName);
+        nextActions[key] = mergeActions(nextActions[key] ?? EMPTY_ACTIONS, {
+          shortlisted: action.shortlisted,
+          verificationRequested: action.verificationRequested,
+          dismissed: action.dismissed,
+        });
+      }
+
+      for (const note of payload.latestNotes) {
+        const key = districtKeyFromParts(note.state, note.districtName);
+        nextActions[key] = mergeActions(nextActions[key] ?? EMPTY_ACTIONS, { noteLatest: note.noteLatest });
+      }
+
+      for (const override of payload.scoreOverrides) {
+        const key = districtKeyFromParts(override.state, override.districtName);
+        nextActions[key] = mergeActions(nextActions[key] ?? EMPTY_ACTIONS, {
+          overrideScore: override.overrideScore,
+          overrideReason: override.overrideReason,
+        });
+      }
+
+      for (const verification of payload.facilityVerifications) {
+        nextFacilityVerifications[facilityKeyFromParts(verification.facilityId, verification.capability)] = {
+          requested: verification.requested,
+          reason: verification.reason,
+        };
+      }
+
+      setActions(nextActions);
+      setFacilityVerifications(nextFacilityVerifications);
+    } catch (err) {
+      setActions({});
+      setFacilityVerifications({});
+      setError(err instanceof Error ? err.message : 'Planner actions are unavailable');
+    }
+  }, [careNeed]);
 
   useEffect(() => {
     void refreshQueue();
-  }, [careNeed, stateFilter, evidenceFilter]);
+    void refreshActions();
+  }, [refreshActions, refreshQueue]);
 
   useEffect(() => {
     if (!selectedDistrict) {
@@ -233,14 +342,126 @@ export default function App() {
       .finally(() => setClaimsLoading(false));
 
     return () => controller.abort();
-  }, [careNeed, selectedDistrict?.district_id]);
+  }, [careNeed, selectedDistrict]);
 
-  const updateAction = (district: DistrictGap, patch: Partial<PlannerActions>) => {
+  const setDistrictActions = (district: DistrictGap, patch: Partial<PlannerActions>) => {
     setActions((current) => {
-      const key = actionKey(district);
-      const existing = current[key] ?? { shortlisted: false, verification: false, dismissed: false, note: '' };
-      return { ...current, [key]: { ...existing, ...patch } };
+      const key = districtKey(district);
+      return { ...current, [key]: mergeActions(current[key] ?? EMPTY_ACTIONS, patch) };
     });
+  };
+
+  const saveDistrictAction = async (district: DistrictGap, patch: Partial<PlannerActions>) => {
+    const key = districtKey(district);
+    const previous = actions[key] ?? EMPTY_ACTIONS;
+    const next = mergeActions(previous, patch);
+    setDistrictActions(district, patch);
+    setSavingKey(key);
+    setError(null);
+
+    try {
+      await fetchJson('/api/caregap/district-actions', {
+        method: 'PUT',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          careNeed,
+          districtId: district.district_id,
+          districtName: district.district_name,
+          state: district.state,
+          shortlisted: next.shortlisted,
+          dismissed: next.dismissed,
+          verificationRequested: next.verificationRequested,
+        }),
+      });
+    } catch (err) {
+      setActions((current) => ({ ...current, [key]: previous }));
+      setError(err instanceof Error ? err.message : 'Failed to save planner action');
+    } finally {
+      setSavingKey(null);
+    }
+  };
+
+  const savePlannerNote = async (district: DistrictGap) => {
+    const key = districtKey(district);
+    const noteText = (actions[key] ?? EMPTY_ACTIONS).noteLatest.trim();
+    if (!noteText) return;
+
+    setSavingKey(`${key}:note`);
+    setError(null);
+    try {
+      await fetchJson('/api/caregap/planner-notes', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          careNeed,
+          districtId: district.district_id,
+          districtName: district.district_name,
+          state: district.state,
+          noteText,
+        }),
+      });
+    } catch (err) {
+      setError(err instanceof Error ? err.message : 'Failed to save planner note');
+    } finally {
+      setSavingKey(null);
+    }
+  };
+
+  const saveScoreOverride = async (district: DistrictGap) => {
+    const key = districtKey(district);
+    const action = actions[key] ?? EMPTY_ACTIONS;
+    setSavingKey(`${key}:override`);
+    setError(null);
+
+    try {
+      await fetchJson('/api/caregap/score-overrides', {
+        method: 'PUT',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          careNeed,
+          districtId: district.district_id,
+          districtName: district.district_name,
+          state: district.state,
+          overrideScore: action.overrideScore,
+          overrideReason: action.overrideReason,
+        }),
+      });
+    } catch (err) {
+      setError(err instanceof Error ? err.message : 'Failed to save score override');
+    } finally {
+      setSavingKey(null);
+    }
+  };
+
+  const saveFacilityVerification = async (claim: FacilityClaim, patch: Partial<FacilityVerification>) => {
+    const key = facilityKey(claim);
+    const previous = facilityVerifications[key] ?? { requested: false, reason: '' };
+    const next = { ...previous, ...patch };
+    setFacilityVerifications((current) => ({ ...current, [key]: next }));
+    setSavingKey(key);
+    setError(null);
+
+    try {
+      await fetchJson('/api/caregap/facility-verifications', {
+        method: 'PUT',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          careNeed,
+          facilityId: claim.facility_id,
+          facilityName: claim.facility_name,
+          capability: claim.capability,
+          state: claim.state,
+          districtOrCity: claim.district_or_city,
+          requested: next.requested,
+          reason: next.reason,
+        }),
+      });
+    } catch (err) {
+      setFacilityVerifications((current) => ({ ...current, [key]: previous }));
+      setError(err instanceof Error ? err.message : 'Failed to save facility verification');
+    } finally {
+      setSavingKey(null);
+    }
   };
 
   return (
@@ -251,12 +472,20 @@ export default function App() {
             <div className="flex flex-wrap items-center gap-2">
               <Badge variant="secondary">CareGap</Badge>
               <Badge variant="outline">Review queue</Badge>
+              {queueResponse?.source && <Badge variant="outline">{queueResponse.source}</Badge>}
             </div>
             <h1 className="mt-2 text-2xl font-semibold tracking-normal text-foreground md:text-3xl">
               Medical Desert Planner
             </h1>
           </div>
-          <Button variant="outline" onClick={() => void refreshQueue()} disabled={queueLoading}>
+          <Button
+            variant="outline"
+            onClick={() => {
+              void refreshQueue();
+              void refreshActions();
+            }}
+            disabled={queueLoading}
+          >
             <RefreshCw className="mr-2 h-4 w-4" />
             Refresh
           </Button>
@@ -272,7 +501,7 @@ export default function App() {
 
         <section className="grid gap-3 md:grid-cols-[260px_220px_200px_minmax(0,1fr)]">
           <Select value={careNeed} onValueChange={(value) => setCareNeed(value as CareNeed)}>
-            <SelectTrigger>
+            <SelectTrigger aria-label="Care need">
               <SelectValue placeholder="Care need" />
             </SelectTrigger>
             <SelectContent>
@@ -284,7 +513,7 @@ export default function App() {
             </SelectContent>
           </Select>
           <Select value={stateFilter} onValueChange={setStateFilter}>
-            <SelectTrigger>
+            <SelectTrigger aria-label="State">
               <SelectValue placeholder="State" />
             </SelectTrigger>
             <SelectContent>
@@ -297,7 +526,7 @@ export default function App() {
             </SelectContent>
           </Select>
           <Select value={evidenceFilter} onValueChange={setEvidenceFilter}>
-            <SelectTrigger>
+            <SelectTrigger aria-label="Evidence">
               <SelectValue placeholder="Evidence" />
             </SelectTrigger>
             <SelectContent>
@@ -316,7 +545,7 @@ export default function App() {
         </section>
 
         <section className="grid gap-4 lg:grid-cols-[410px_minmax(0,1fr)]">
-          <div className="space-y-3">
+          <div className="space-y-3" aria-label="District review queue">
             {queueLoading ? (
               Array.from({ length: 8 }, (_, index) => <Skeleton key={index} className="h-28 w-full" />)
             ) : queue.length === 0 ? (
@@ -331,43 +560,46 @@ export default function App() {
                 </CardContent>
               </Card>
             ) : (
-              queue.map((district) => (
-                <button
-                  key={district.district_id}
-                  className={`w-full rounded-md border bg-card p-3 text-left transition hover:border-primary ${
-                    selectedDistrict?.district_id === district.district_id ? 'border-primary ring-1 ring-primary' : ''
-                  } ${actions[actionKey(district)]?.dismissed ? 'opacity-55' : ''}`}
-                  onClick={() => setSelectedId(district.district_id)}
-                  type="button"
-                >
-                  <div className="flex items-start justify-between gap-3">
-                    <div className="min-w-0">
-                      <div className="truncate font-medium text-foreground">{district.district_name}</div>
-                      <div className="mt-1 flex items-center gap-1 text-xs text-muted-foreground">
-                        <MapPin className="h-3.5 w-3.5" />
-                        {district.state}
+              queue.map((district) => {
+                const districtActions = actions[districtKey(district)] ?? EMPTY_ACTIONS;
+                const displayScore = districtActions.overrideScore ?? district.planning_priority_score;
+                return (
+                  <button
+                    key={district.district_id}
+                    className={`w-full rounded-md border bg-card p-3 text-left transition hover:border-primary ${
+                      selectedDistrict?.district_id === district.district_id ? 'border-primary ring-1 ring-primary' : ''
+                    } ${districtActions.dismissed ? 'opacity-55' : ''}`}
+                    onClick={() => setSelectedId(district.district_id)}
+                    type="button"
+                  >
+                    <div className="flex items-start justify-between gap-3">
+                      <div className="min-w-0">
+                        <div className="truncate font-medium text-foreground">{district.district_name}</div>
+                        <div className="mt-1 flex items-center gap-1 text-xs text-muted-foreground">
+                          <MapPin className="h-3.5 w-3.5" />
+                          {district.state}
+                        </div>
                       </div>
+                      <Badge variant={displayScore >= 70 ? 'destructive' : 'secondary'}>{priorityLabel(displayScore)}</Badge>
                     </div>
-                    <Badge variant={district.planning_priority_score >= 70 ? 'destructive' : 'secondary'}>
-                      {priorityLabel(district.planning_priority_score)}
-                    </Badge>
-                  </div>
-                  <div className="mt-3 grid grid-cols-[70px_minmax(0,1fr)_54px] items-center gap-2 text-xs">
-                    <span className="text-muted-foreground">Priority</span>
-                    <ScoreBar value={district.planning_priority_score} />
-                    <span className="text-right font-medium">{formatScore(district.planning_priority_score)}</span>
-                    <span className="text-muted-foreground">Supply</span>
-                    <ScoreBar value={district.supply_score} muted />
-                    <span className="text-right font-medium">{formatScore(district.supply_score)}</span>
-                  </div>
-                  <div className="mt-3 flex flex-wrap items-center gap-2">
-                    <Badge variant={evidenceVariant(district.uncertainty_label)}>{district.uncertainty_label}</Badge>
-                    <Badge variant="outline">{formatNumber(district.relevant_claims)} claims</Badge>
-                    {actions[actionKey(district)]?.shortlisted && <Badge variant="secondary">shortlisted</Badge>}
-                    {actions[actionKey(district)]?.verification && <Badge variant="outline">verify</Badge>}
-                  </div>
-                </button>
-              ))
+                    <div className="mt-3 grid grid-cols-[70px_minmax(0,1fr)_54px] items-center gap-2 text-xs">
+                      <span className="text-muted-foreground">Priority</span>
+                      <ScoreBar value={displayScore} />
+                      <span className="text-right font-medium">{formatScore(displayScore)}</span>
+                      <span className="text-muted-foreground">Supply</span>
+                      <ScoreBar value={district.supply_score} muted />
+                      <span className="text-right font-medium">{formatScore(district.supply_score)}</span>
+                    </div>
+                    <div className="mt-3 flex flex-wrap items-center gap-2">
+                      <Badge variant={evidenceVariant(district.uncertainty_label)}>{district.uncertainty_label}</Badge>
+                      <Badge variant="outline">{formatNumber(district.relevant_claims)} claims</Badge>
+                      {districtActions.shortlisted && <Badge variant="secondary">shortlisted</Badge>}
+                      {districtActions.verificationRequested && <Badge variant="outline">verify</Badge>}
+                      {districtActions.overrideScore !== null && <Badge variant="secondary">override</Badge>}
+                    </div>
+                  </button>
+                );
+              })
             )}
           </div>
 
@@ -376,7 +608,20 @@ export default function App() {
             claims={claims}
             claimsLoading={claimsLoading}
             district={selectedDistrict}
-            onUpdateAction={updateAction}
+            facilityVerifications={facilityVerifications}
+            onSaveDistrictAction={saveDistrictAction}
+            onSaveFacilityVerification={saveFacilityVerification}
+            onSaveNote={savePlannerNote}
+            onSaveOverride={saveScoreOverride}
+            onUpdateAction={setDistrictActions}
+            onUpdateFacilityVerification={(claim, patch) => {
+              const key = facilityKey(claim);
+              setFacilityVerifications((current) => ({
+                ...current,
+                [key]: { ...(current[key] ?? { requested: false, reason: '' }), ...patch },
+              }));
+            }}
+            savingKey={savingKey}
           />
         </section>
       </main>
@@ -396,7 +641,10 @@ function QueueStat({ label, value }: { label: string; value: number }) {
 function ScoreBar({ value, muted = false }: { value: number; muted?: boolean }) {
   return (
     <div className="h-2 overflow-hidden rounded-full bg-muted">
-      <div className={`h-full rounded-full ${muted ? 'bg-muted-foreground' : 'bg-primary'}`} style={{ width: scoreWidth(value) }} />
+      <div
+        className={`h-full rounded-full ${muted ? 'bg-muted-foreground' : 'bg-primary'}`}
+        style={{ width: scoreWidth(value) }}
+      />
     </div>
   );
 }
@@ -406,13 +654,27 @@ function DistrictDetail({
   claims,
   claimsLoading,
   district,
+  facilityVerifications,
+  onSaveDistrictAction,
+  onSaveFacilityVerification,
+  onSaveNote,
+  onSaveOverride,
   onUpdateAction,
+  onUpdateFacilityVerification,
+  savingKey,
 }: {
   actions: PlannerActions | null;
   claims: FacilityClaim[];
   claimsLoading: boolean;
   district: DistrictGap | null;
+  facilityVerifications: Record<string, FacilityVerification>;
+  onSaveDistrictAction: (district: DistrictGap, patch: Partial<PlannerActions>) => Promise<void>;
+  onSaveFacilityVerification: (claim: FacilityClaim, patch: Partial<FacilityVerification>) => Promise<void>;
+  onSaveNote: (district: DistrictGap) => Promise<void>;
+  onSaveOverride: (district: DistrictGap) => Promise<void>;
   onUpdateAction: (district: DistrictGap, patch: Partial<PlannerActions>) => void;
+  onUpdateFacilityVerification: (claim: FacilityClaim, patch: Partial<FacilityVerification>) => void;
+  savingKey: string | null;
 }) {
   if (!district || !actions) {
     return (
@@ -429,6 +691,11 @@ function DistrictDetail({
     );
   }
 
+  const scoreForDisplay = actions.overrideScore ?? district.planning_priority_score;
+  const districtSaving = savingKey === districtKey(district);
+  const noteSaving = savingKey === `${districtKey(district)}:note`;
+  const overrideSaving = savingKey === `${districtKey(district)}:override`;
+
   return (
     <div className="space-y-4">
       <Card>
@@ -441,13 +708,20 @@ function DistrictDetail({
             <Badge variant={evidenceVariant(district.uncertainty_label)}>{district.uncertainty_label}</Badge>
           </div>
           <div className="grid gap-3 md:grid-cols-4">
-            <ScoreMetric label="Priority" value={district.planning_priority_score} icon={Flag} />
+            <ScoreMetric label="Priority" value={scoreForDisplay} icon={Flag} />
             <ScoreMetric label="Health risk" value={district.risk_score} icon={AlertTriangle} />
             <ScoreMetric label="Claimed supply" value={district.supply_score} icon={ClipboardCheck} />
             <ScoreMetric label="Evidence" value={district.evidence_score} icon={ShieldQuestion} />
           </div>
         </CardHeader>
         <CardContent className="space-y-4">
+          {actions.overrideScore !== null && (
+            <Alert>
+              <AlertDescription>
+                Override priority {formatScore(actions.overrideScore)}. {actions.overrideReason || 'No override reason saved.'}
+              </AlertDescription>
+            </Alert>
+          )}
           <p className="text-sm leading-6 text-muted-foreground">{district.explanation}</p>
           <div className="grid gap-2 text-sm md:grid-cols-4">
             <DetailPill label="Relevant claims" value={district.relevant_claims} />
@@ -466,21 +740,26 @@ function DistrictDetail({
           <div className="flex flex-wrap gap-2">
             <Button
               variant={actions.shortlisted ? 'default' : 'outline'}
-              onClick={() => onUpdateAction(district, { shortlisted: !actions.shortlisted })}
+              onClick={() => void onSaveDistrictAction(district, { shortlisted: !actions.shortlisted })}
+              disabled={districtSaving}
             >
               <Star className="mr-2 h-4 w-4" />
               Shortlist
             </Button>
             <Button
-              variant={actions.verification ? 'default' : 'outline'}
-              onClick={() => onUpdateAction(district, { verification: !actions.verification })}
+              variant={actions.verificationRequested ? 'default' : 'outline'}
+              onClick={() =>
+                void onSaveDistrictAction(district, { verificationRequested: !actions.verificationRequested })
+              }
+              disabled={districtSaving}
             >
               <CheckCircle2 className="mr-2 h-4 w-4" />
               Field verification
             </Button>
             <Button
               variant={actions.dismissed ? 'destructive' : 'outline'}
-              onClick={() => onUpdateAction(district, { dismissed: !actions.dismissed })}
+              onClick={() => void onSaveDistrictAction(district, { dismissed: !actions.dismissed })}
+              disabled={districtSaving}
             >
               Dismiss
             </Button>
@@ -488,9 +767,56 @@ function DistrictDetail({
           <Textarea
             className="min-h-24"
             placeholder="Planner note"
-            value={actions.note}
-            onChange={(event) => onUpdateAction(district, { note: event.target.value })}
+            value={actions.noteLatest}
+            onChange={(event) => onUpdateAction(district, { noteLatest: event.target.value })}
           />
+          <div className="flex justify-end">
+            <Button
+              variant="outline"
+              onClick={() => void onSaveNote(district)}
+              disabled={noteSaving || actions.noteLatest.trim().length === 0}
+            >
+              <Save className="mr-2 h-4 w-4" />
+              Save note
+            </Button>
+          </div>
+        </CardContent>
+      </Card>
+
+      <Card>
+        <CardHeader>
+          <CardTitle>Score Override</CardTitle>
+        </CardHeader>
+        <CardContent className="space-y-3">
+          <div className="grid gap-3 md:grid-cols-[170px_minmax(0,1fr)]">
+            <input
+              aria-label="Override score"
+              className="h-10 rounded-md border bg-background px-3 text-sm"
+              max={100}
+              min={0}
+              placeholder="Override score"
+              type="number"
+              value={actions.overrideScore ?? ''}
+              onChange={(event) =>
+                onUpdateAction(district, {
+                  overrideScore: event.target.value === '' ? null : Number(event.target.value),
+                })
+              }
+            />
+            <input
+              aria-label="Override reason"
+              className="h-10 rounded-md border bg-background px-3 text-sm"
+              placeholder="Override reason"
+              value={actions.overrideReason}
+              onChange={(event) => onUpdateAction(district, { overrideReason: event.target.value })}
+            />
+          </div>
+          <div className="flex justify-end">
+            <Button variant="outline" onClick={() => void onSaveOverride(district)} disabled={overrideSaving}>
+              <Save className="mr-2 h-4 w-4" />
+              Save override
+            </Button>
+          </div>
         </CardContent>
       </Card>
 
@@ -509,7 +835,16 @@ function DistrictDetail({
               </EmptyHeader>
             </Empty>
           ) : (
-            claims.map((claim) => <ClaimRow claim={claim} key={`${claim.facility_id}:${claim.capability}`} />)
+            claims.map((claim) => (
+              <ClaimRow
+                claim={claim}
+                key={`${claim.facility_id}:${claim.capability}`}
+                onSaveVerification={onSaveFacilityVerification}
+                onUpdateVerification={onUpdateFacilityVerification}
+                saving={savingKey === facilityKey(claim)}
+                verification={facilityVerifications[facilityKey(claim)] ?? { requested: false, reason: '' }}
+              />
+            ))
           )}
         </CardContent>
       </Card>
@@ -541,7 +876,19 @@ function DetailPill({ label, value }: { label: string; value: number }) {
   );
 }
 
-function ClaimRow({ claim }: { claim: FacilityClaim }) {
+function ClaimRow({
+  claim,
+  onSaveVerification,
+  onUpdateVerification,
+  saving,
+  verification,
+}: {
+  claim: FacilityClaim;
+  onSaveVerification: (claim: FacilityClaim, patch: Partial<FacilityVerification>) => Promise<void>;
+  onUpdateVerification: (claim: FacilityClaim, patch: Partial<FacilityVerification>) => void;
+  saving: boolean;
+  verification: FacilityVerification;
+}) {
   return (
     <div className="rounded-md border p-3">
       <div className="flex flex-wrap items-start justify-between gap-2">
@@ -552,13 +899,33 @@ function ClaimRow({ claim }: { claim: FacilityClaim }) {
             <span>{claim.district_source.replaceAll('_', ' ')}</span>
           </div>
         </div>
-        <Badge variant={evidenceVariant(claim.confidence)}>{claim.confidence}</Badge>
+        <div className="flex flex-wrap items-center gap-2">
+          {verification.requested && <Badge variant="outline">needs verification</Badge>}
+          <Badge variant={evidenceVariant(claim.confidence)}>{claim.confidence}</Badge>
+        </div>
       </div>
       <div className="mt-3 flex gap-2 text-sm leading-6">
         <FileText className="mt-0.5 h-4 w-4 shrink-0 text-muted-foreground" />
         <p className="text-muted-foreground">{claim.evidence_text}</p>
       </div>
       <p className="mt-2 text-xs text-muted-foreground">{claim.uncertainty_reason}</p>
+      <div className="mt-3 grid gap-2 md:grid-cols-[minmax(0,1fr)_auto]">
+        <input
+          aria-label={`Verification reason for ${claim.facility_name}`}
+          className="h-10 rounded-md border bg-background px-3 text-sm"
+          placeholder="Verification reason"
+          value={verification.reason}
+          onChange={(event) => onUpdateVerification(claim, { reason: event.target.value })}
+        />
+        <Button
+          variant={verification.requested ? 'default' : 'outline'}
+          onClick={() => void onSaveVerification(claim, { requested: !verification.requested })}
+          disabled={saving}
+        >
+          <CheckCircle2 className="mr-2 h-4 w-4" />
+          Needs verification
+        </Button>
+      </div>
     </div>
   );
 }

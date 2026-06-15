@@ -8,14 +8,15 @@ let consoleErrors: string[] = [];
 let pageErrors: string[] = [];
 let failedRequests: string[] = [];
 
-test('smoke test - health explorer loads', async ({ page }) => {
+test('smoke test - CareGap review queue loads', async ({ page }) => {
   await page.goto('/');
 
-  await expect(page.getByRole('heading', { name: 'India Health Access Explorer' })).toBeVisible();
-  await expect(page.getByText('Lakebase continuous sync')).toBeVisible();
-  await expect(page.getByText('Facility Search')).toBeVisible();
-  await expect(page.getByText('State Coverage')).toBeVisible();
-  await expect(page.getByRole('tab', { name: 'District Indicators' })).toBeVisible();
+  await expect(page.getByRole('heading', { name: 'Medical Desert Planner' })).toBeVisible();
+  await expect(page.getByText('CareGap')).toBeVisible();
+  await expect(page.getByLabel('Care need')).toBeVisible();
+  await expect(page.getByLabel('District review queue')).toBeVisible();
+  await expect(page.getByText('Planner Actions')).toBeVisible();
+  await expect(page.getByText('Facility Evidence')).toBeVisible();
 });
 
 test.beforeEach(async ({ page }) => {
