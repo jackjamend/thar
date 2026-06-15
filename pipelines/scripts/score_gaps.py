@@ -21,6 +21,12 @@ FIELDS = [
     "supply_score",
     "evidence_score",
     "data_quality_score",
+    "relevant_claims",
+    "strong_claims",
+    "partial_claims",
+    "pincode_inferred_claims",
+    "city_fallback_claims",
+    "uncertainty_label",
     "explanation",
     "updated_at",
 ]
@@ -57,4 +63,3 @@ def _write_csv(path: str, rows: list[dict[str, str]]) -> None:
 
 if __name__ == "__main__":
     main()
-

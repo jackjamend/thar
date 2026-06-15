@@ -102,6 +102,12 @@ caregap_district_gaps
 - supply_score
 - evidence_score
 - data_quality_score
+- relevant_claims
+- strong_claims
+- partial_claims
+- pincode_inferred_claims
+- city_fallback_claims
+- uncertainty_label
 - explanation
 - updated_at
 ```
