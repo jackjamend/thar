@@ -61,6 +61,7 @@ The current repo is a Databricks App using:
 - Express server routes
 - Lakebase-backed queries
 - A table named `public.health_access_records`
+- Python pipeline code under `dais-hackathon/pipelines/`
 
 The current app already has:
 
@@ -69,8 +70,83 @@ The current app already has:
 - NFHS district indicators
 - Lakebase route structure in `server/routes/lakebase/health-routes.ts`
 - Main frontend in `client/src/App.tsx`
+- Python capability extraction and scoring scaffold in `pipelines/caregap/`
+- Runnable Python scripts in `pipelines/scripts/`
 
 Prefer extending existing patterns rather than introducing a new architecture.
+
+## Python Pipeline Architecture
+
+The team is primarily Python-oriented. Use Python for the analytical pipeline and TypeScript for the app shell.
+
+Recommended architecture:
+
+```text
+Raw facility records
+  -> Python extraction/scoring pipeline
+  -> prepared claims and district gap tables
+  -> React/AppKit review queue
+  -> planner decisions saved back to Lakebase
+```
+
+The Python pipeline should compute and materialize evidence, scores, and optional LLM summaries. The app should read prepared outputs quickly and persist human decisions.
+
+Keep these responsibilities separate:
+
+- Python:
+  - Data verification.
+  - Capability extraction.
+  - Evidence snippet generation.
+  - District gap scoring.
+  - LLM classification or summarization, when reliable.
+  - Loading prepared results into Lakebase or synced tables.
+- TypeScript/React:
+  - Review queue UI.
+  - District detail UI.
+  - Evidence and uncertainty display.
+  - Planner action controls.
+  - API routes for reading prepared outputs and writing planner decisions.
+
+Existing Python structure:
+
+```text
+dais-hackathon/pipelines/
+  README.md
+  requirements.txt
+  caregap/
+    capabilities.py
+    scoring.py
+    lakebase_io.py
+    llm.py
+  scripts/
+    verify_data.py
+    extract_claims.py
+    score_gaps.py
+    run_all.py
+  notebooks/
+    exploration.py
+```
+
+Preferred pipeline wiring during the hackathon:
+
+1. Run Python scripts manually or as a Databricks notebook/job before the demo.
+2. Materialize outputs into prepared tables such as:
+   - `caregap_facility_claims`
+   - `caregap_district_gaps`
+3. Have the app read those prepared tables through Express/Lakebase routes.
+4. Persist planner actions in separate Lakebase tables.
+
+Avoid running expensive extraction, scoring, or LLM calls on every UI click. For the live demo, precomputed or cached outputs are safer.
+
+If time allows, add a Databricks Lakeflow Job later:
+
+```text
+Task 1: extract facility capability claims
+Task 2: score district care gaps
+Task 3: optionally enrich explanations with LLM summaries
+```
+
+A UI-triggered "Refresh analysis" button is optional and should come after the core review queue works.
 
 ## Priority Features
 
@@ -94,6 +170,8 @@ Useful care capabilities:
 - ICU
 - Ventilator
 - Dialysis, if time
+
+Use `dais-hackathon/pipelines/scripts/verify_data.py` where practical, or extend it if source data access is available through Databricks rather than CSV.
 
 ### 2. Capability Extraction
 
@@ -119,6 +197,8 @@ Suggested confidence labels:
 
 Start with deterministic keyword/entity extraction. Add LLM-based classification or summarization only after a reliable fallback exists.
 
+Use or extend `dais-hackathon/pipelines/caregap/capabilities.py` for deterministic extraction.
+
 ### 3. Gap Scoring
 
 Create a district-level planning priority score.
@@ -132,6 +212,8 @@ Score should consider:
 - Missing or vague facility descriptions.
 
 The score should support ranking, but must include explanation and uncertainty.
+
+Use or extend `dais-hackathon/pipelines/caregap/scoring.py` for initial scoring.
 
 ### 4. Review Queue UI
 
@@ -159,11 +241,11 @@ Persist planner actions in Lakebase.
 
 Likely tables:
 
-- `review_decisions`
-- `planner_notes`
-- `shortlists`
-- `facility_verifications`
-- optional `score_overrides`
+- `caregap_review_decisions`
+- `caregap_planner_notes`
+- `caregap_shortlists`
+- `caregap_facility_verifications`
+- optional `caregap_score_overrides`
 
 Saved actions should be visible after refresh.
 
@@ -205,6 +287,8 @@ The dashboard is optional. The review queue is the core product.
 - Keep changes scoped and demo-oriented.
 - Use AppKit UI components where possible.
 - Use Lakebase for low-latency reads and persisted user actions.
+- Use Python pipeline code for analytical preparation instead of reimplementing extraction/scoring in TypeScript unless there is a strong demo reason.
+- Keep pipeline outputs as explicit tables or files that the app can consume.
 - Avoid broad refactors during hackathon time.
 - Add focused tests or smoke checks for critical demo paths.
 - Do not remove existing functionality unless replacing it intentionally.
