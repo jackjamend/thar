@@ -117,22 +117,24 @@ def _run_databricks(profile: str, args: list[str]) -> dict:
 
 def _build_sql() -> str:
     return r"""
-WITH facility_records AS (
+WITH cleaned_facility_source AS (
   SELECT
-    concat('facility:', unique_id) AS record_id,
-    'facility' AS record_type,
+    unique_id,
     nullif(trim(regexp_replace(coalesce(get_json_object(name, '$.name'), name), '\\s+', ' ')), '') AS entity_name,
     nullif(trim(address_stateOrRegion), '') AS state,
-    CAST(NULL AS STRING) AS district,
     nullif(trim(address_city), '') AS city,
     nullif(trim(address_zipOrPostcode), '') AS pincode,
     try_cast(latitude AS DOUBLE) AS latitude,
     try_cast(longitude AS DOUBLE) AS longitude,
     CASE lower(nullif(trim(facilityTypeId), ''))
       WHEN 'nursing_home' THEN 'hospital'
+      WHEN 'null' THEN NULL
       ELSE lower(nullif(trim(facilityTypeId), ''))
     END AS facility_type,
-    lower(nullif(trim(operatorTypeId), '')) AS operator_type,
+    CASE lower(nullif(trim(operatorTypeId), ''))
+      WHEN 'null' THEN NULL
+      ELSE lower(nullif(trim(operatorTypeId), ''))
+    END AS operator_type,
     coalesce(
       nullif(trim(officialPhone), ''),
       nullif(regexp_extract(phone_numbers, '"([^"]+)"', 1), ''),
@@ -143,8 +145,47 @@ WITH facility_records AS (
       nullif(trim(officialWebsite), ''),
       nullif(regexp_extract(websites, '"([^"]+)"', 1), ''),
       nullif(trim(websites), '')
-    ) AS website,
-    nullif(trim(regexp_replace(description, '\\s+', ' ')), '') AS description,
+    ) AS website
+  FROM databricks_virtue_foundation_dataset_dais_2026.virtue_foundation_dataset.facilities
+  WHERE unique_id RLIKE '^[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}$'
+    AND nullif(trim(name), '') IS NOT NULL
+    AND lower(coalesce(facilityTypeId, '')) IN ('', 'hospital', 'clinic', 'dentist', 'doctor', 'pharmacy', 'farmacy', 'null', 'nursing_home')
+    AND lower(coalesce(operatorTypeId, '')) IN ('', 'private', 'public', 'government', 'null')
+),
+facility_records AS (
+  SELECT
+    concat('facility:', unique_id) AS record_id,
+    'facility' AS record_type,
+    entity_name,
+    state,
+    CAST(NULL AS STRING) AS district,
+    city,
+    pincode,
+    latitude,
+    longitude,
+    facility_type,
+    operator_type,
+    phone,
+    website,
+    concat(
+      entity_name,
+      ' is listed as ',
+      CASE
+        WHEN facility_type IS NOT NULL AND operator_type IS NOT NULL
+          THEN concat('a ', operator_type, ' ', regexp_replace(facility_type, '_', ' '))
+        WHEN facility_type IS NOT NULL
+          THEN concat('a ', regexp_replace(facility_type, '_', ' '))
+        WHEN operator_type IS NOT NULL
+          THEN concat('a ', operator_type, ' health facility')
+        ELSE 'a health facility'
+      END,
+      CASE
+        WHEN concat_ws(', ', city, state, pincode) <> ''
+          THEN concat(' in ', concat_ws(', ', city, state, pincode))
+        ELSE ''
+      END,
+      '.'
+    ) AS description,
     CAST(NULL AS STRING) AS office_type,
     CAST(NULL AS STRING) AS delivery,
     CAST(NULL AS DOUBLE) AS households_surveyed,
@@ -154,11 +195,7 @@ WITH facility_records AS (
     CAST(NULL AS DOUBLE) AS improved_water_pct,
     CAST(NULL AS DOUBLE) AS improved_sanitation_pct,
     CAST(NULL AS DOUBLE) AS health_insurance_pct
-  FROM databricks_virtue_foundation_dataset_dais_2026.virtue_foundation_dataset.facilities
-  WHERE unique_id RLIKE '^[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}$'
-    AND nullif(trim(name), '') IS NOT NULL
-    AND lower(coalesce(facilityTypeId, '')) IN ('', 'hospital', 'clinic', 'dentist', 'doctor', 'pharmacy', 'farmacy', 'null', 'nursing_home')
-    AND lower(coalesce(operatorTypeId, '')) IN ('', 'private', 'public', 'government', 'null')
+  FROM cleaned_facility_source
 ),
 pincode_records AS (
   SELECT

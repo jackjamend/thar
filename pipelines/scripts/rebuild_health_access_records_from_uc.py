@@ -141,36 +141,20 @@ def _resolve_source_tables(
 
 
 def _build_facility_records(df: DataFrame) -> DataFrame:
-    name = _clean(_first(df, ["entity_name", "facility_name", "hospital_name", "clinic_name", "name", "title"]))
-    state = _clean(_first(df, ["state", "state_name", "statename"]))
+    raw_name = _first(df, ["entity_name", "facility_name", "hospital_name", "clinic_name", "name", "title"])
+    name = _clean(F.coalesce(F.get_json_object(raw_name, "$.name"), raw_name))
+    state = _clean(_first(df, ["state", "state_name", "statename", "address_stateOrRegion"]))
     district = _clean(_first(df, ["district", "district_name", "districtname"]))
-    city = _clean(_first(df, ["city", "town", "village", "locality", "subdistrict"]))
-    pincode = _clean(_first(df, ["pincode", "pin_code", "postal_code", "postcode", "pin"]))
+    city = _clean(_first(df, ["city", "town", "village", "locality", "subdistrict", "address_city"]))
+    pincode = _clean(_first(df, ["pincode", "pin_code", "postal_code", "postcode", "pin", "address_zipOrPostcode"]))
     latitude = _double(_first(df, ["latitude", "lat"]))
     longitude = _double(_first(df, ["longitude", "lon", "lng"]))
-    facility_type = _normalize_facility_type(_first(df, ["facility_type", "type", "category", "amenity"]))
-    operator_type = _normalize_operator_type(_first(df, ["operator_type", "ownership", "owner_type", "operator"]))
-    phone = _clean(_first(df, ["phone", "telephone", "mobile", "contact", "contact_number"]))
-    website = _clean(_first_scalar(df, ["website", "url", "web_url", "site"]))
-    description = _clean(
-        _first(
-            df,
-            [
-                "description",
-                "descriptions",
-                "about",
-                "overview",
-                "summary",
-                "services",
-                "service",
-                "specialities",
-                "specialties",
-                "capabilities",
-                "claimed_capabilities",
-            ],
-        )
-    )
-    source_id = _first_scalar(df, ["record_id", "facility_id", "id", "uuid", "place_id", "source_id"])
+    facility_type = _normalize_facility_type(_first(df, ["facility_type", "facilityTypeId", "type", "category", "amenity"]))
+    operator_type = _normalize_operator_type(_first(df, ["operator_type", "operatorTypeId", "ownership", "owner_type", "operator"]))
+    phone = _clean(_first(df, ["phone", "officialPhone", "phone_numbers", "telephone", "mobile", "contact", "contact_number"]))
+    website = _clean(_first_scalar(df, ["website", "officialWebsite", "websites", "url", "web_url", "site"]))
+    description = _facility_description(name, facility_type, operator_type, city, state, pincode)
+    source_id = _first_scalar(df, ["record_id", "facility_id", "unique_id", "id", "uuid", "place_id", "source_id"])
     facility_uuid = _stable_uuid(source_id, name, state, city, pincode, latitude.cast("string"), longitude.cast("string"))
 
     return df.select(
@@ -374,7 +358,34 @@ def _as_scalar_string(df: DataFrame, column: str) -> Column:
 
 def _clean(value: Column) -> Column:
     text = F.trim(F.regexp_replace(value.cast("string"), r"\s+", " "))
-    return F.when((text == "") | (F.lower(text) == "nan"), F.lit(None).cast("string")).otherwise(text)
+    return F.when((text == "") | (F.lower(text).isin("nan", "null")), F.lit(None).cast("string")).otherwise(text)
+
+
+def _facility_description(
+    name: Column,
+    facility_type: Column,
+    operator_type: Column,
+    city: Column,
+    state: Column,
+    pincode: Column,
+) -> Column:
+    kind = (
+        F.when(
+            facility_type.isNotNull() & operator_type.isNotNull(),
+            F.concat(F.lit("a "), operator_type, F.lit(" "), F.regexp_replace(facility_type, "_", " ")),
+        )
+        .when(facility_type.isNotNull(), F.concat(F.lit("a "), F.regexp_replace(facility_type, "_", " ")))
+        .when(operator_type.isNotNull(), F.concat(F.lit("a "), operator_type, F.lit(" health facility")))
+        .otherwise(F.lit("a health facility"))
+    )
+    location = _clean(F.concat_ws(", ", city, state, pincode))
+    return F.concat(
+        name,
+        F.lit(" is listed as "),
+        kind,
+        F.when(location.isNotNull(), F.concat(F.lit(" in "), location)).otherwise(F.lit("")),
+        F.lit("."),
+    )
 
 
 def _double(value: Column) -> Column:
