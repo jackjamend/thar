@@ -92,8 +92,8 @@ Use these verified facts from the current Lakebase snapshot to avoid repeating e
 - Maternal Emergency Care has enough deterministic keyword coverage for a demo:
   - C-section: 394 facilities.
   - OBGYN: 563 facilities.
-  - NICU: 444 facilities.
-  - Blood bank: 147 facilities.
+  - NICU: 127 facilities after tightening broad pediatric partial matches.
+  - Blood bank: 44 facilities after tightening generic blood-test partial matches.
   - Ambulance: 99 facilities.
   - 24x7 emergency: 527 facilities.
 - Strong evidence-rich demo candidates include Deoghar, Jharkhand; Saharsa, Bihar; Shahjahanpur, Uttar Pradesh; and Gaya, Bihar.

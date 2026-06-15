@@ -10,6 +10,7 @@ from statistics import median
 sys.path.append(str(Path(__file__).resolve().parents[1]))
 
 from caregap.capabilities import CARE_NEEDS, extract_facility_claims, summarize_capability_coverage
+from caregap.locations import enrich_facility_locations
 
 MATERNAL_NEED = "maternal_emergency"
 
@@ -21,8 +22,7 @@ def main() -> None:
     args = parser.parse_args()
 
     records = _read_csv(args.input)
-    pincode_districts = _pincode_district_index(records)
-    verified_records = [_with_inferred_district(row, pincode_districts) for row in records]
+    verified_records = enrich_facility_locations(records)
     facilities = [row for row in verified_records if row.get("record_type") == "facility"]
     districts = [row for row in records if row.get("record_type") == "district"]
     descriptions = [row.get("description", "") for row in facilities]
@@ -108,41 +108,6 @@ def _count_present(rows: list[dict[str, str]], field: str) -> int:
 
 def _count_short_descriptions(descriptions: list[str]) -> int:
     return sum(1 for text in descriptions if 0 < len(text.strip()) < 40)
-
-
-def _pincode_district_index(records: list[dict[str, str]]) -> dict[str, tuple[str, str]]:
-    district_counts: dict[str, Counter[tuple[str, str]]] = defaultdict(Counter)
-    for row in records:
-        if row.get("record_type") != "pincode":
-            continue
-        pincode = (row.get("pincode") or "").strip()
-        district = (row.get("district") or "").strip()
-        state = (row.get("state") or "").strip()
-        if pincode and district:
-            district_counts[pincode][(state, district)] += 1
-
-    return {
-        pincode: counts.most_common(1)[0][0]
-        for pincode, counts in district_counts.items()
-        if counts
-    }
-
-
-def _with_inferred_district(row: dict[str, str], pincode_districts: dict[str, tuple[str, str]]) -> dict[str, str]:
-    if row.get("record_type") != "facility" or (row.get("district") or "").strip():
-        return row
-
-    pincode = (row.get("pincode") or "").strip()
-    inferred = pincode_districts.get(pincode)
-    if not inferred:
-        return row
-
-    state, district = inferred
-    enriched = dict(row)
-    enriched["district"] = district.title()
-    if not (enriched.get("state") or "").strip() and state:
-        enriched["state"] = state.title()
-    return enriched
 
 
 def _top_counts(rows: list[dict[str, str]], field: str, limit: int) -> list[tuple[str, int]]:

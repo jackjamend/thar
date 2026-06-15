@@ -8,6 +8,7 @@ from pathlib import Path
 sys.path.append(str(Path(__file__).resolve().parents[1]))
 
 from caregap.capabilities import CARE_NEEDS, extract_facility_claims
+from caregap.locations import enrich_facility_locations
 from caregap.scoring import score_district_gaps
 
 
@@ -16,6 +17,7 @@ CLAIM_FIELDS = [
     "facility_name",
     "state",
     "district_or_city",
+    "district_source",
     "capability",
     "claim_status",
     "confidence",
@@ -49,8 +51,9 @@ def main() -> None:
 
     out_dir = Path(args.out_dir)
     records = _read_csv(args.input)
-    claims = extract_facility_claims(records)
-    gaps = score_district_gaps(records, claims, care_need=args.care_need)
+    enriched_records = enrich_facility_locations(records)
+    claims = extract_facility_claims(enriched_records)
+    gaps = score_district_gaps(enriched_records, claims, care_need=args.care_need)
 
     _write_csv(out_dir / "caregap_facility_claims.csv", claims, CLAIM_FIELDS)
     _write_csv(out_dir / "caregap_district_gaps.csv", gaps, GAP_FIELDS)
@@ -74,4 +77,3 @@ def _write_csv(path: Path, rows: list[dict[str, str]], fields: list[str]) -> Non
 
 if __name__ == "__main__":
     main()
-

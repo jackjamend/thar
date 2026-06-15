@@ -83,6 +83,7 @@ caregap_facility_claims
 - facility_name
 - state
 - district_or_city
+- district_source
 - capability
 - claim_status
 - confidence
@@ -122,4 +123,3 @@ caregap_score_overrides
 - Cite exact evidence snippets for every important facility capability claim.
 - Use cautious language: "claimed capability", "planning priority", and "needs verification".
 - Avoid presenting scores as ground truth.
-

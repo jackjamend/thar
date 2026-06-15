@@ -8,6 +8,7 @@ from pathlib import Path
 sys.path.append(str(Path(__file__).resolve().parents[1]))
 
 from caregap.capabilities import extract_facility_claims
+from caregap.locations import enrich_facility_locations
 
 
 FIELDS = [
@@ -15,6 +16,7 @@ FIELDS = [
     "facility_name",
     "state",
     "district_or_city",
+    "district_source",
     "capability",
     "claim_status",
     "confidence",
@@ -32,7 +34,8 @@ def main() -> None:
     args = parser.parse_args()
 
     records = _read_csv(args.input)
-    claims = extract_facility_claims(records)
+    enriched_records = enrich_facility_locations(records)
+    claims = extract_facility_claims(enriched_records)
     _write_csv(args.output, claims)
     print(f"Wrote {len(claims):,} facility capability claims to {args.output}")
 
@@ -53,4 +56,3 @@ def _write_csv(path: str, rows: list[dict[str, str]]) -> None:
 
 if __name__ == "__main__":
     main()
-

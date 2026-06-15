@@ -31,13 +31,13 @@ CAPABILITIES: tuple[Capability, ...] = (
         key="nicu",
         label="NICU",
         strong_patterns=(r"\bnicu\b", r"\bneonatal intensive care\b"),
-        partial_patterns=(r"\bneonatal\b", r"\bnewborn\b", r"\bpaediatric\b", r"\bpediatric\b"),
+        partial_patterns=(r"\bneonatal\b", r"\bnewborn\b", r"\bpaediatric intensive\b", r"\bpediatric intensive\b"),
     ),
     Capability(
         key="blood_bank",
         label="Blood bank",
         strong_patterns=(r"\bblood bank\b", r"\bblood storage\b", r"\bblood transfusion\b"),
-        partial_patterns=(r"\bblood\b",),
+        partial_patterns=(r"\bblood component\b", r"\bblood centre\b", r"\bblood center\b"),
     ),
     Capability(
         key="ambulance",
@@ -123,6 +123,7 @@ def extract_facility_claims(records: Iterable[dict[str, str]]) -> list[dict[str,
                     "facility_name": record.get("entity_name", ""),
                     "state": record.get("state", ""),
                     "district_or_city": record.get("district", "") or record.get("city", ""),
+                    "district_source": record.get("district_source", "") or _district_source(record),
                     "capability": capability.key,
                     "claim_status": "claimed",
                     "confidence": confidence,
@@ -134,6 +135,14 @@ def extract_facility_claims(records: Iterable[dict[str, str]]) -> list[dict[str,
             )
 
     return claims
+
+
+def _district_source(record: dict[str, str]) -> str:
+    if record.get("district"):
+        return "source_district"
+    if record.get("city"):
+        return "city_fallback"
+    return "missing_location"
 
 
 def summarize_capability_coverage(records: Iterable[dict[str, str]]) -> dict[str, int]:
@@ -169,4 +178,3 @@ def _snippet(text: str, start: int, end: int, window: int = 90) -> str:
     if right < len(text):
         snippet = f"{snippet}..."
     return snippet
-
