@@ -75,6 +75,43 @@ The current app already has:
 
 Prefer extending existing patterns rather than introducing a new architecture.
 
+## Known Data Findings
+
+Use these verified facts from the current Lakebase snapshot to avoid repeating early data-discovery work:
+
+- `public.health_access_records` currently contains 176,408 rows:
+  - 10,077 facility rows.
+  - 706 district indicator rows.
+  - 165,625 pincode rows.
+- A local CSV snapshot exists at `dais-hackathon/data/health_access_records.csv`. Use it first for local verification and pipeline development unless the Lakebase source data has changed.
+- Facility descriptions are highly usable: 9,997/10,077 facility rows have non-empty `description` text, with median length around 114 characters.
+- Facility rows do not currently have source `district` values: 0/10,077 are populated.
+- Facility rows usually do have `pincode`: 10,019/10,077 are populated.
+- Pincode rows include district and state. Use pincode records to infer facility districts before district-level scoring or claim aggregation.
+- Pincode inference currently maps about 94.9% of facilities to districts: 9,559/10,077 facilities.
+- Maternal Emergency Care has enough deterministic keyword coverage for a demo:
+  - C-section: 394 facilities.
+  - OBGYN: 563 facilities.
+  - NICU: 444 facilities.
+  - Blood bank: 147 facilities.
+  - Ambulance: 99 facilities.
+  - 24x7 emergency: 527 facilities.
+- Strong evidence-rich demo candidates include Deoghar, Jharkhand; Saharsa, Bihar; Shahjahanpur, Uttar Pradesh; and Gaya, Bihar.
+- Likely high-risk medical-desert review candidates include West Khasi Hills, Meghalaya; Pakur, Jharkhand; Bijapur, Chhattisgarh; Bastar, Chhattisgarh; and Araria, Bihar.
+
+Lakebase export note:
+
+- The local `.env` has `PGHOST`, `PGDATABASE`, and `LAKEBASE_ENDPOINT`, but not a static Postgres password.
+- For raw `psql` export, generate a short-lived credential with:
+
+```bash
+databricks postgres generate-database-credential \
+  projects/dais-hackathon/branches/production/endpoints/primary \
+  --profile dais-2026
+```
+
+- Connect as the current Databricks user, using the generated token as `PGPASSWORD`.
+
 ## Python Pipeline Architecture
 
 The team is primarily Python-oriented. Use Python for the analytical pipeline and TypeScript for the app shell.
@@ -156,8 +193,10 @@ Before major implementation, verify:
 
 - Facility `description` text has usable care capability evidence.
 - Facility records have enough location info to connect to districts, states, or pincodes.
+- Facility district linkage works through pincode inference. Do not assume facility rows have populated `district` values.
 - Capability terms appear often enough for demo use.
 - There are 2-3 strong demo districts or facilities.
+- There are both likely-desert districts and evidence-rich districts suitable for UI review demos.
 
 Useful care capabilities:
 
@@ -171,7 +210,9 @@ Useful care capabilities:
 - Ventilator
 - Dialysis, if time
 
-Use `dais-hackathon/pipelines/scripts/verify_data.py` where practical, or extend it if source data access is available through Databricks rather than CSV.
+Use `dais-hackathon/pipelines/scripts/verify_data.py` where practical. It reports description quality, location quality, pincode-derived district coverage, maternal capability coverage, evidence samples, likely medical-desert candidates, and evidence-rich demo candidates.
+
+Prefer the local snapshot at `dais-hackathon/data/health_access_records.csv` for repeatable local verification. Re-export from Lakebase only if the source table has changed or the snapshot is missing.
 
 ### 2. Capability Extraction
 
@@ -181,6 +222,8 @@ Each claim should include:
 
 - `facility_id`
 - `facility_name`
+- `state`
+- `district_or_city`, using inferred district when available and city as fallback
 - `capability`
 - `claim_status`
 - `confidence`
@@ -207,6 +250,7 @@ Score should consider:
 
 - Health risk indicators from NFHS.
 - Supply signal from relevant facility claims.
+- District linkage quality, especially whether facility district came from pincode inference or fallback city.
 - Evidence strength.
 - Data quality issues.
 - Missing or vague facility descriptions.
