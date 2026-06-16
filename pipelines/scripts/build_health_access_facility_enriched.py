@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import argparse
+import re
 from typing import TYPE_CHECKING
 
 if TYPE_CHECKING:
@@ -31,6 +32,69 @@ DISTRICT_TABLE = "nfhs_5_district_health_indicators"
 OUTPUT_TABLE = "health_access_facility_enriched"
 OUTPUT_CATALOG = "workspace"
 OUTPUT_SCHEMA = "default"
+CANONICAL_STATES = {
+    "Andaman & Nicobar Islands",
+    "Andhra Pradesh",
+    "Arunachal Pradesh",
+    "Assam",
+    "Bihar",
+    "Chandigarh",
+    "Chhattisgarh",
+    "Dadra & Nagar Haveli and Daman & Diu",
+    "Delhi",
+    "Goa",
+    "Gujarat",
+    "Haryana",
+    "Himachal Pradesh",
+    "Jammu & Kashmir",
+    "Jharkhand",
+    "Karnataka",
+    "Kerala",
+    "Ladakh",
+    "Lakshadweep",
+    "Madhya Pradesh",
+    "Maharashtra",
+    "Manipur",
+    "Meghalaya",
+    "Mizoram",
+    "Nagaland",
+    "Odisha",
+    "Puducherry",
+    "Punjab",
+    "Rajasthan",
+    "Sikkim",
+    "Tamil Nadu",
+    "Telangana",
+    "Tripura",
+    "Uttar Pradesh",
+    "Uttarakhand",
+    "West Bengal",
+}
+STATE_ALIASES = {
+    **{re.sub(r"[^a-z0-9]+", " ", state.lower()).strip(): state for state in CANONICAL_STATES},
+    "andaman and nicobar islands": "Andaman & Nicobar Islands",
+    "andaman nicobar": "Andaman & Nicobar Islands",
+    "andaman nicobar islands": "Andaman & Nicobar Islands",
+    "chattisgarh": "Chhattisgarh",
+    "chhatisgarh": "Chhattisgarh",
+    "daman diu": "Dadra & Nagar Haveli and Daman & Diu",
+    "dadra and nagar haveli and daman and diu": "Dadra & Nagar Haveli and Daman & Diu",
+    "dadra and nagar haveli daman and diu": "Dadra & Nagar Haveli and Daman & Diu",
+    "dadra and nagar haveli": "Dadra & Nagar Haveli and Daman & Diu",
+    "dadra nagar haveli": "Dadra & Nagar Haveli and Daman & Diu",
+    "dadra nagar haveli daman diu": "Dadra & Nagar Haveli and Daman & Diu",
+    "jammu and kashmir": "Jammu & Kashmir",
+    "maharastra": "Maharashtra",
+    "nct delhi": "Delhi",
+    "nct of delhi": "Delhi",
+    "new delhi": "Delhi",
+    "orissa": "Odisha",
+    "pondicherry": "Puducherry",
+    "tamilnadu": "Tamil Nadu",
+    "u p": "Uttar Pradesh",
+    "up": "Uttar Pradesh",
+    "uttaranchal": "Uttarakhand",
+}
 
 
 def main() -> None:
@@ -297,14 +361,21 @@ def _build_enriched(facilities: DataFrame, pincode_rollup: DataFrame, district_c
     joined_location = (
         facilities.alias("f")
         .join(pincode_rollup.alias("p"), on="pincode_key", how="left")
-        .withColumn("analysis_state", F.coalesce(F.col("source_state"), F.col("pincode_state")))
-        .withColumn("analysis_district", F.coalesce(F.col("source_district"), F.col("pincode_district"), F.col("source_city")))
+        .withColumn("canonical_source_state", _canonical_state(F.col("source_state")))
+        .withColumn("pincode_state", _canonical_state(F.col("pincode_state")))
+        .withColumn("analysis_state", F.coalesce(F.col("pincode_state"), F.col("canonical_source_state")))
+        .withColumn(
+            "analysis_district",
+            F.when(F.col("pincode_state").isNotNull() & F.col("pincode_district").isNotNull(), F.col("pincode_district"))
+            .when(F.col("source_district").isNotNull(), F.col("source_district"))
+            .otherwise(F.col("source_city")),
+        )
         .withColumn("analysis_state_key", _name_key(F.col("analysis_state")))
         .withColumn("analysis_district_key", _name_key(F.col("analysis_district")))
         .withColumn(
             "district_source",
-            F.when(F.col("source_district").isNotNull(), "source_district")
-            .when(F.col("pincode_district").isNotNull(), "pincode_inferred")
+            F.when(F.col("pincode_state").isNotNull() & F.col("pincode_district").isNotNull(), "pincode_inferred")
+            .when(F.col("source_district").isNotNull(), "source_district")
             .when(F.col("source_city").isNotNull(), "city_fallback")
             .otherwise("missing_location"),
         )
@@ -317,7 +388,10 @@ def _build_enriched(facilities: DataFrame, pincode_rollup: DataFrame, district_c
         )
         .withColumn(
             "pincode_match_status",
-            F.when(F.col("pincode_key").isNotNull() & F.col("pincode_state").isNotNull(), "matched").otherwise("missing"),
+            F.when(
+                F.col("pincode_key").isNotNull() & F.col("pincode_state").isNotNull() & F.col("pincode_district").isNotNull(),
+                "matched",
+            ).otherwise("missing"),
         )
     )
 
@@ -425,6 +499,13 @@ def _validate_enriched(facilities: DataFrame, enriched: DataFrame) -> None:
     pincode_counts = enriched.groupBy("pincode_match_status").count().orderBy("pincode_match_status").collect()
     district_counts = enriched.groupBy("district_match_status").count().orderBy("district_match_status").collect()
     source_counts = enriched.groupBy("district_source").count().orderBy("district_source").collect()
+    noncanonical_states = (
+        enriched.where(F.col("analysis_state").isNotNull() & ~F.col("analysis_state").isin(*sorted(CANONICAL_STATES)))
+        .groupBy("analysis_state")
+        .count()
+        .orderBy(F.desc("count"), "analysis_state")
+        .collect()
+    )
 
     print("Enriched table validation")
     print(f"- input valid facility rows: {facility_count:,}")
@@ -439,11 +520,16 @@ def _validate_enriched(facilities: DataFrame, enriched: DataFrame) -> None:
     print("- district_source:")
     for row in source_counts:
         print(f"  - {row['district_source']}: {row['count']:,}")
+    print(f"- non-canonical analysis_state values: {sum(row['count'] for row in noncanonical_states):,}")
+    for row in noncanonical_states[:20]:
+        print(f"  - {row['analysis_state']}: {row['count']:,}")
 
     if enriched_count != facility_count:
         raise RuntimeError("Enriched row count changed. Pincode or district joins are duplicating/dropping facilities.")
     if duplicate_count:
         raise RuntimeError("Enriched table contains duplicate facility_id rows.")
+    if noncanonical_states:
+        raise RuntimeError("Enriched table contains non-canonical analysis_state values.")
 
 
 def _csv_safe(df: DataFrame) -> DataFrame:
@@ -514,6 +600,12 @@ def _pincode_key(value: Column) -> Column:
 def _name_key(value: Column) -> Column:
     key = F.lower(F.trim(F.regexp_replace(_clean(value), r"[^A-Za-z0-9]+", " ")))
     return F.when(key == "", F.lit(None).cast("string")).otherwise(key)
+
+
+def _canonical_state(value: Column) -> Column:
+    key = _name_key(value)
+    mapping = F.create_map(*[item for pair in STATE_ALIASES.items() for item in (F.lit(pair[0]), F.lit(pair[1]))])
+    return F.element_at(mapping, key)
 
 
 def _normalize_facility_type(value: Column) -> Column:

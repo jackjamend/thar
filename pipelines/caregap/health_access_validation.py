@@ -33,7 +33,7 @@ HEALTH_ACCESS_FIELDS = [
     "health_insurance_pct",
 ]
 
-KNOWN_FACILITY_TYPES = {"", "hospital", "clinic", "dentist", "doctor", "pharmacy", "farmacy", "null"}
+KNOWN_FACILITY_TYPES = {"", "hospital", "clinic", "dentist", "doctor", "pharmacy", "farmacy", "nursing_home", "null"}
 KNOWN_OPERATOR_TYPES = {"", "private", "public", "government", "null"}
 KNOWN_RECORD_TYPES = {"facility", "pincode", "district"}
 FACILITY_ID_RE = re.compile(r"^facility:[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}$")

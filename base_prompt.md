@@ -90,12 +90,13 @@ Use these verified facts from the current enriched build to avoid repeating data
 - The Databricks App reads the Lakebase mirror `public.health_access_facility_enriched`; refresh it with `dais-hackathon/pipelines/scripts/load_health_access_facility_enriched.py`.
 - The enriched table contains 9,989 rows and 9,989 distinct `facility_id` values.
 - Pincode matching:
-  - 9,707 facility rows have matched pincode context.
-  - 282 facility rows use city fallback because pincode context is missing.
+  - 9,700 facility rows have matched pincode context.
+  - 289 facility rows use city fallback because pincode context is missing.
 - District/NFHS matching:
-  - 6,199 facility rows have matched NFHS district indicators.
-  - 3,790 facility rows have location context but no matched NFHS district indicators.
-- Facility rows generally do not have source `district` values. District linkage is inferred from pincode first, then city fallback.
+  - 6,526 facility rows have matched NFHS district indicators.
+  - 3,463 facility rows have location context but no matched NFHS district indicators.
+- Facility rows generally do not have source `district` values. District linkage is inferred from pincode first, then city fallback. Pincode-derived state/district is authoritative when available.
+- Current CareGap outputs contain 5,063 facility claims and 2,118 district gap rows. The gap table uses 706 NFHS district rows from `data/health_access_records.csv` across three care needs.
 - The build script is `dais-hackathon/pipelines/scripts/build_health_access_facility_enriched.py`.
 - Recreate instructions live in `dais-hackathon/pipelines/health_access_facility_enriched_runbook.md`.
 - A local mixed-record CSV snapshot still exists at `dais-hackathon/data/health_access_records.csv` for legacy pipeline compatibility, but prefer the enriched table for new analysis and inference work.

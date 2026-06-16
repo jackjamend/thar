@@ -44,18 +44,18 @@ def _with_facility_location(row: dict[str, str], pincode_locations: dict[str, tu
     city = _clean(row.get("city"))
     pincode = _clean(row.get("pincode"))
 
-    if source_district:
-        enriched["district"] = source_district
-        enriched["district_source"] = "source_district"
-        return enriched
-
     inferred = pincode_locations.get(pincode)
     if inferred:
         inferred_state, inferred_district = inferred
         enriched["district"] = inferred_district.title()
         enriched["district_source"] = "pincode_inferred"
-        if not _clean(enriched.get("state")) and inferred_state:
+        if inferred_state:
             enriched["state"] = inferred_state.title()
+        return enriched
+
+    if source_district:
+        enriched["district"] = source_district
+        enriched["district_source"] = _clean(row.get("district_source")) or "source_district"
         return enriched
 
     if city:

@@ -142,6 +142,27 @@ python pipelines/scripts/load_health_access_facility_enriched.py \
 
 This script exports `workspace.default.health_access_facility_enriched` to `data/health_access_facility_enriched.csv`, recreates `public.health_access_facility_enriched`, and adds lookup indexes for state, district, facility type, pincode status, and district status. It requires a valid Databricks OAuth profile for the SQL export and a short-lived Lakebase database credential for the Postgres load.
 
+## Recreate CareGap App Tables
+
+Regenerate claims and district gaps from the enriched facility CSV:
+
+```bash
+python pipelines/scripts/run_all.py \
+  --input data/health_access_facility_enriched.csv \
+  --district-input data/health_access_records.csv \
+  --out-dir data
+```
+
+Load the refreshed prepared tables into Lakebase:
+
+```bash
+python pipelines/scripts/load_prepared_tables.py \
+  --claims data/caregap_facility_claims.csv \
+  --gaps data/caregap_district_gaps.csv
+```
+
+The enriched table is facility-grain, so `data/health_access_records.csv` is still used as the complete NFHS district universe for scoring. Current generated counts are 5,063 facility claims and 2,118 district gap rows, covering 706 district rows across three care needs.
+
 ## Validation Results From Successful Build
 
 Successful build run:
@@ -161,10 +182,11 @@ duplicate facility_id rows: 0
 Match summary:
 
 ```text
-pincode matched: 9,707
-pincode missing: 282
-NFHS district matched: 6,199
-NFHS missing: 3,790
+pincode matched: 9,700
+pincode missing: 289
+NFHS district matched: 6,526
+NFHS missing: 3,463
+non-canonical analysis_state values: 0
 ```
 
 Final SQL verification:

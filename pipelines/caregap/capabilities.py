@@ -104,6 +104,11 @@ def extract_facility_claims(records: Iterable[dict[str, str]]) -> list[dict[str,
             continue
 
         description = record.get("description") or ""
+        state = record.get("state", "")
+        district_or_city = record.get("district", "") or record.get("city", "")
+        if not state or not district_or_city:
+            continue
+
         for capability in CAPABILITIES:
             match = _first_match(description, capability.strong_patterns)
             confidence = "strong"
@@ -121,8 +126,8 @@ def extract_facility_claims(records: Iterable[dict[str, str]]) -> list[dict[str,
                 {
                     "facility_id": record.get("record_id", ""),
                     "facility_name": record.get("entity_name", ""),
-                    "state": record.get("state", ""),
-                    "district_or_city": record.get("district", "") or record.get("city", ""),
+                    "state": state,
+                    "district_or_city": district_or_city,
                     "district_source": record.get("district_source", "") or _district_source(record),
                     "capability": capability.key,
                     "claim_status": "claimed",

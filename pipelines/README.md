@@ -45,66 +45,34 @@ pipelines/
 
 ## Recommended Hackathon Flow
 
-1. Export or query facility records into a CSV with fields like:
-   - `record_id`
-   - `record_type`
-   - `entity_name`
-   - `state`
-   - `city`
-   - `pincode`
-   - `facility_type`
-   - `description`
-   - NFHS district indicator columns, where available
+Use the enriched facility table as the primary source for new analysis and app refreshes. The legacy `health_access_records.csv` snapshot is still used as the full NFHS district universe for CareGap scoring.
 
-   To export from Lakebase using the explicit supported schema:
+1. Build or refresh the enriched Unity Catalog table:
 
    ```bash
-   python pipelines/scripts/export_health_access_records.py \
-     --output data/health_access_records.csv
+   python pipelines/scripts/build_health_access_facility_enriched.py --validate-only
+   python pipelines/scripts/build_health_access_facility_enriched.py
    ```
 
-2. Validate the source snapshot before extraction:
+2. Mirror the enriched table into Lakebase and refresh the local enriched CSV:
 
    ```bash
-   python pipelines/scripts/validate_health_access_records.py \
-     --input data/health_access_records.csv \
-     --quarantine-output data/health_access_records_quarantine.csv
+   python pipelines/scripts/load_health_access_facility_enriched.py \
+     --output data/health_access_facility_enriched.csv
    ```
 
-   Source validation fails on structural problems such as malformed facility IDs, shifted JSON/coordinates in scalar columns, blank facility names, and description-column drift. It warns on softer description quality issues.
-
-3. Run data verification:
-
-   ```bash
-   python pipelines/scripts/verify_data.py --input data/health_access_records.csv
-   ```
-
-4. Extract capability claims:
-
-   ```bash
-   python pipelines/scripts/extract_claims.py \
-     --input data/health_access_records.csv \
-     --output data/caregap_facility_claims.csv
-   ```
-
-5. Score district gaps:
-
-   ```bash
-   python pipelines/scripts/score_gaps.py \
-     --input data/health_access_records.csv \
-     --claims data/caregap_facility_claims.csv \
-     --output data/caregap_district_gaps.csv
-   ```
-
-6. Or run extraction and all care-need scoring together:
+3. Regenerate CareGap claims and district gaps from enriched facilities:
 
    ```bash
    python pipelines/scripts/run_all.py \
-     --input data/health_access_records.csv \
+     --input data/health_access_facility_enriched.csv \
+     --district-input data/health_access_records.csv \
      --out-dir data
    ```
 
-7. Load the generated tables into Lakebase for the app to read:
+   `--district-input` supplies the complete NFHS district universe. The enriched facility table is facility-grain, so it only contains districts with matched facilities.
+
+4. Load the generated tables into Lakebase for the app to read:
 
    ```bash
    python pipelines/scripts/load_prepared_tables.py \
@@ -198,6 +166,21 @@ python pipelines/scripts/load_health_access_facility_enriched.py \
 ```
 
 This exports `workspace.default.health_access_facility_enriched` through the Databricks SQL Statements API, writes a local CSV snapshot, and replaces `public.health_access_facility_enriched` in Lakebase. The app still falls back to legacy prepared tables when the enriched mirror is unavailable.
+
+Regenerate the prepared CareGap app tables from the enriched CSV:
+
+```bash
+python pipelines/scripts/run_all.py \
+  --input data/health_access_facility_enriched.csv \
+  --district-input data/health_access_records.csv \
+  --out-dir data
+
+python pipelines/scripts/load_prepared_tables.py \
+  --claims data/caregap_facility_claims.csv \
+  --gaps data/caregap_district_gaps.csv
+```
+
+The current generated outputs contain 5,063 facility claims and 2,118 district gap rows. The gap table covers 706 NFHS district rows across three care needs.
 
 If you only need a guarded Lakebase-side cleanup for obvious structural failures in the existing table, run:
 
