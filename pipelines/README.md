@@ -30,6 +30,7 @@ pipelines/
   scripts/
     export_health_access_records.py # export source Lakebase table to CSV
     rebuild_health_access_records_from_uc.py # rebuild source snapshot from UC tables
+    build_health_access_facility_enriched.py # create facility-grain joined UC table
     load_health_access_records.py # load rebuilt snapshot into Lakebase
     repair_health_access_records.py # quarantine structurally invalid source rows
     validate_health_access_records.py # validate source CSV before extraction
@@ -152,6 +153,41 @@ python pipelines/scripts/load_health_access_records.py \
 ```
 
 The first load command creates `public.health_access_records_candidate` and does not replace the live table. The `--apply` command backs up the live table and swaps in the candidate.
+
+## Building the Joined Analysis Table
+
+For analysis and inference, prefer a facility-grain enriched table over the mixed `record_type` snapshot. The enriched table keeps one row per valid facility, rolls pincode/post-office rows up to one row per pincode, and left joins NFHS district indicators through the best available district signal.
+
+Run the builder on Databricks/Spark:
+
+```bash
+python pipelines/scripts/build_health_access_facility_enriched.py \
+  --validate-only
+```
+
+When validation passes, write the Unity Catalog table:
+
+```bash
+python pipelines/scripts/build_health_access_facility_enriched.py
+```
+
+The default output table is:
+
+```text
+workspace.default.health_access_facility_enriched
+```
+
+The source dataset catalog is a Delta Sharing catalog, so it is read-only. Use `--output-table` if you want to write to a different managed catalog/schema.
+
+To write elsewhere or export a CSV snapshot:
+
+```bash
+python pipelines/scripts/build_health_access_facility_enriched.py \
+  --output-table <catalog>.<schema>.health_access_facility_enriched \
+  --output-path /Volumes/<catalog>/<schema>/<volume>/health_access_facility_enriched_csv
+```
+
+The builder fails if the final row count changes from the valid facility count or if duplicate `facility_id` rows appear, which catches accidental one-to-many joins from the pincode table.
 
 If you only need a guarded Lakebase-side cleanup for obvious structural failures in the existing table, run:
 

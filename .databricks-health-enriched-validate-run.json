@@ -1,0 +1,23 @@
+{
+  "run_name": "build-health-access-facility-enriched-validate",
+  "tasks": [
+    {
+      "task_key": "validate_enriched",
+      "environment_key": "default",
+      "spark_python_task": {
+        "python_file": "/Workspace/Users/jamend@humana.com/db_hackathon26/pipelines/scripts/build_health_access_facility_enriched_file.py",
+        "parameters": [
+          "--validate-only"
+        ]
+      }
+    }
+  ],
+  "environments": [
+    {
+      "environment_key": "default",
+      "spec": {
+        "environment_version": "2"
+      }
+    }
+  ]
+}

@@ -1,0 +1,24 @@
+{
+  "run_name": "build-health-access-facility-enriched",
+  "tasks": [
+    {
+      "task_key": "build_enriched",
+      "environment_key": "default",
+      "spark_python_task": {
+        "python_file": "/Workspace/Users/jamend@humana.com/db_hackathon26/pipelines/scripts/build_health_access_facility_enriched_file.py",
+        "parameters": [
+          "--output-table",
+          "workspace.default.health_access_facility_enriched"
+        ]
+      }
+    }
+  ],
+  "environments": [
+    {
+      "environment_key": "default",
+      "spec": {
+        "environment_version": "2"
+      }
+    }
+  ]
+}
