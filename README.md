@@ -56,16 +56,14 @@ Use multiple profiles for different workspaces:
 [DEFAULT]
 host = https://dev-workspace.cloud.databricks.com
 
-[production]
-host = https://prod-workspace.cloud.databricks.com
-client_id = prod-client-id
-client_secret = prod-client-secret
+[dais-2026]
+host = https://dbc-e3cabb27-f036.cloud.databricks.com
 ```
 
 Deploy using a specific profile:
 
 ```bash
-databricks bundle deploy --profile production
+databricks bundle deploy --profile dais-2026
 ```
 
 **Note:** Personal Access Tokens (PATs) are legacy authentication. OAuth is strongly recommended for better security.
@@ -113,6 +111,21 @@ Run the production build:
 npm start
 ```
 
+## Data Pipeline
+
+The main analysis-ready Unity Catalog table is:
+
+```text
+workspace.default.health_access_facility_enriched
+```
+
+It is built from the DAIS 2026 facility, pincode, and NFHS district indicator source tables. The source dataset catalog is Delta Sharing/read-only, so derived outputs must be written to a managed writable catalog such as `workspace.default`. The app reads the Lakebase mirror `public.health_access_facility_enriched`, which can be refreshed with `pipelines/scripts/load_health_access_facility_enriched.py`. CareGap claims and district gaps should be regenerated from `data/health_access_facility_enriched.csv`.
+
+For recreation steps, validation counts, and Databricks authentication notes, see:
+
+- `pipelines/health_access_facility_enriched_runbook.md`
+- `pipelines/README.md`
+
 ## Code Quality
 
 There are a few commands to help you with code quality:
@@ -148,7 +161,7 @@ Make sure to replace all placeholder values in `databricks.yml` with your actual
 ### 2. Validate Bundle
 
 ```bash
-databricks bundle validate
+databricks bundle validate --profile dais-2026
 ```
 
 ### 3. Deploy
@@ -156,7 +169,7 @@ databricks bundle validate
 Deploy to the default target:
 
 ```bash
-databricks bundle deploy
+databricks bundle deploy --profile dais-2026
 ```
 
 ### 4. Run
@@ -164,7 +177,7 @@ databricks bundle deploy
 Start the deployed app:
 
 ```bash
-databricks bundle run <APP_NAME> -t dev
+databricks bundle run app --profile dais-2026
 ```
 
 ### Deploy to Production
@@ -173,7 +186,7 @@ databricks bundle run <APP_NAME> -t dev
 2. Deploy to production:
 
 ```bash
-databricks bundle deploy -t prod
+databricks bundle deploy -t prod --profile dais-2026
 ```
 
 ## Project Structure

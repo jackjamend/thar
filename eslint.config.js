@@ -16,6 +16,7 @@ export default tseslint.config(
       '**/coverage/**',
       'client/dist/**',
       '**.databricks/**',
+      '**/.python-deps/**',
       'tests/**',
       '**/.smoke-test/**',
     ],

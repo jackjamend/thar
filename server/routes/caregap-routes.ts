@@ -18,6 +18,7 @@ const QueueQuery = z.object({
   careNeed: z.string().optional().default('maternal_emergency'),
   state: z.string().optional().default('all'),
   evidence: z.string().optional().default('all'),
+  mode: z.enum(['decision', 'missing_info']).optional().default('decision'),
   limit: z.coerce.number().int().min(1).max(200).optional().default(60),
 });
 
@@ -78,6 +79,7 @@ const CARE_NEED_CAPABILITIES: Record<string, Set<string>> = {
 const DATA_DIR = path.join(process.cwd(), 'data');
 const GAPS_CSV = path.join(DATA_DIR, 'caregap_district_gaps.csv');
 const CLAIMS_CSV = path.join(DATA_DIR, 'caregap_facility_claims.csv');
+const HEALTH_ENRICHED_TABLE = 'public.health_access_facility_enriched';
 
 const SETUP_SQL = [
   'CREATE SCHEMA IF NOT EXISTS app',
@@ -400,13 +402,14 @@ async function setupCareGapSchema(appkit: AppKitWithLakebase) {
 async function loadReviewQueue(appkit: AppKitWithLakebase, query: z.infer<typeof QueueQuery>) {
   try {
     const rows = await queryLakebaseGaps(appkit, query);
-    const states = await queryLakebaseStates(appkit, query.careNeed);
-    return { careNeed: query.careNeed, source: 'lakebase', states, queue: rows.map(mapDistrictGap) };
+    const states = await queryLakebaseStates(appkit, query);
+    return { careNeed: query.careNeed, mode: query.mode, source: 'lakebase', states, queue: rows.map(mapDistrictGap) };
   } catch (err) {
     console.warn('[caregap] Falling back to CSV review queue:', messageFromError(err, 'unknown error'));
     const rows = await readCsv(GAPS_CSV);
     const queue = rows
       .filter((row) => row.care_need === query.careNeed)
+      .filter((row) => matchesQueueMode(numberField(row.supply_score), query.mode))
       .filter((row) => query.state === 'all' || row.state === query.state)
       .filter((row) => query.evidence === 'all' || row.uncertainty_label === query.evidence)
       .sort((a, b) => numberField(b.planning_priority_score) - numberField(a.planning_priority_score))
@@ -415,8 +418,16 @@ async function loadReviewQueue(appkit: AppKitWithLakebase, query: z.infer<typeof
 
     return {
       careNeed: query.careNeed,
+      mode: query.mode,
       source: 'csv-fallback',
-      states: [...new Set(rows.filter((row) => row.care_need === query.careNeed).map((row) => row.state))].sort(),
+      states: [
+        ...new Set(
+          rows
+            .filter((row) => row.care_need === query.careNeed)
+            .filter((row) => matchesQueueMode(numberField(row.supply_score), query.mode))
+            .map((row) => row.state),
+        ),
+      ].sort(),
       queue,
     };
   }
@@ -448,23 +459,28 @@ async function queryLakebaseGaps(appkit: AppKitWithLakebase, query: z.infer<type
         care_need = $1
         AND ($2 = 'all' OR state = $2)
         AND ($3 = 'all' OR uncertainty_label = $3)
+        AND (($5 = 'missing_info' AND supply_score::numeric = 0) OR ($5 = 'decision' AND supply_score::numeric > 0))
       ORDER BY planning_priority_score::numeric DESC
       LIMIT $4
     `,
-    [query.careNeed, query.state, query.evidence, query.limit],
+    [query.careNeed, query.state, query.evidence, query.limit, query.mode],
   );
   return result.rows;
 }
 
-async function queryLakebaseStates(appkit: AppKitWithLakebase, careNeed: string) {
+async function queryLakebaseStates(appkit: AppKitWithLakebase, query: z.infer<typeof QueueQuery>) {
   const result = await appkit.lakebase.query(
     `
       SELECT DISTINCT state
       FROM public.caregap_district_gaps
-      WHERE care_need = $1 AND state IS NOT NULL AND state <> ''
+      WHERE
+        care_need = $1
+        AND state IS NOT NULL
+        AND state <> ''
+        AND (($2 = 'missing_info' AND supply_score::numeric = 0) OR ($2 = 'decision' AND supply_score::numeric > 0))
       ORDER BY state
     `,
-    [careNeed],
+    [query.careNeed, query.mode],
   );
   return result.rows.map((row) => stringField(row.state)).filter(Boolean);
 }
@@ -475,32 +491,34 @@ async function loadFacilityClaims(appkit: AppKitWithLakebase, query: z.infer<typ
     const result = await appkit.lakebase.query(
       `
         SELECT
-          facility_id,
-          facility_name,
-          state,
-          district_or_city,
-          district_source,
-          capability,
-          claim_status,
-          confidence,
-          evidence_text,
-          uncertainty_reason,
-          extraction_method,
-          updated_at
-        FROM public.caregap_facility_claims
+          claims.facility_id,
+          COALESCE(NULLIF(TRIM(enriched.facility_name), ''), claims.facility_name) AS facility_name,
+          COALESCE(NULLIF(TRIM(enriched.analysis_state), ''), claims.state) AS state,
+          COALESCE(NULLIF(TRIM(enriched.analysis_district), ''), claims.district_or_city) AS district_or_city,
+          COALESCE(NULLIF(TRIM(enriched.district_source), ''), claims.district_source) AS district_source,
+          claims.capability,
+          claims.claim_status,
+          claims.confidence,
+          claims.evidence_text,
+          claims.uncertainty_reason,
+          claims.extraction_method,
+          claims.updated_at
+        FROM public.caregap_facility_claims claims
+        LEFT JOIN ${HEALTH_ENRICHED_TABLE} enriched
+          ON enriched.facility_id = claims.facility_id
         WHERE
-          state = $1
-          AND LOWER(TRIM(district_or_city)) = LOWER(TRIM($2))
-          AND capability = ANY($3::text[])
+          COALESCE(NULLIF(TRIM(enriched.analysis_state), ''), claims.state) = $1
+          AND LOWER(TRIM(COALESCE(NULLIF(TRIM(enriched.analysis_district), ''), claims.district_or_city))) = LOWER(TRIM($2))
+          AND claims.capability = ANY($3::text[])
         ORDER BY
-          CASE confidence
+          CASE claims.confidence
             WHEN 'strong' THEN 3
             WHEN 'partial' THEN 2
             WHEN 'weak' THEN 1
             ELSE 0
           END DESC,
-          facility_name,
-          capability
+          COALESCE(NULLIF(TRIM(enriched.facility_name), ''), claims.facility_name),
+          claims.capability
       `,
       [query.state, query.district, capabilities],
     );
@@ -790,6 +808,10 @@ function numberField(value: string) {
 function numericField(value: unknown) {
   if (typeof value === 'number') return value;
   if (typeof value === 'string') return numberField(value);
+  if (value && typeof value === 'object' && 'toString' in value) {
+    const text = (value as { toString(): string }).toString();
+    return text === '[object Object]' ? 0 : numberField(text);
+  }
   return 0;
 }
 
@@ -806,6 +828,10 @@ function confidenceRank(value: string) {
   if (value === 'partial') return 2;
   if (value === 'weak') return 1;
   return 0;
+}
+
+function matchesQueueMode(supplyScore: number, mode: z.infer<typeof QueueQuery>['mode']) {
+  return mode === 'missing_info' ? supplyScore === 0 : supplyScore > 0;
 }
 
 function normalized(value: string) {

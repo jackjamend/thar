@@ -3,6 +3,8 @@ from __future__ import annotations
 from collections import Counter, defaultdict
 from typing import Iterable
 
+from .records import canonical_district, canonical_state
+
 
 def enrich_facility_locations(records: Iterable[dict[str, str]]) -> list[dict[str, str]]:
     """Add district provenance fields to facility records.
@@ -23,8 +25,8 @@ def _pincode_location_index(records: list[dict[str, str]]) -> dict[str, tuple[st
             continue
 
         pincode = _clean(row.get("pincode"))
-        district = _clean(row.get("district"))
-        state = _clean(row.get("state"))
+        state = canonical_state(row.get("state")) or _clean(row.get("state"))
+        district = canonical_district(state, row.get("district"))
         if pincode and district:
             location_counts[pincode][(state, district)] += 1
 
@@ -44,18 +46,19 @@ def _with_facility_location(row: dict[str, str], pincode_locations: dict[str, tu
     city = _clean(row.get("city"))
     pincode = _clean(row.get("pincode"))
 
-    if source_district:
-        enriched["district"] = source_district
-        enriched["district_source"] = "source_district"
-        return enriched
-
     inferred = pincode_locations.get(pincode)
     if inferred:
         inferred_state, inferred_district = inferred
-        enriched["district"] = inferred_district.title()
+        enriched["district"] = inferred_district
         enriched["district_source"] = "pincode_inferred"
-        if not _clean(enriched.get("state")) and inferred_state:
-            enriched["state"] = inferred_state.title()
+        if inferred_state:
+            enriched["state"] = inferred_state
+        return enriched
+
+    if source_district:
+        state = canonical_state(row.get("state")) or _clean(row.get("state"))
+        enriched["district"] = canonical_district(state, source_district)
+        enriched["district_source"] = _clean(row.get("district_source")) or "source_district"
         return enriched
 
     if city:

@@ -34,11 +34,13 @@ import {
 } from 'lucide-react';
 
 type CareNeed = 'maternal_emergency' | 'critical_care' | 'dialysis_access';
+type QueueMode = 'decision' | 'missing_info';
 type SourceLabel = 'lakebase' | 'csv-fallback';
 type EvidenceLabel = 'strong' | 'partial' | 'weak' | 'missing' | 'conflicting';
 
 type ReviewQueueResponse = {
   careNeed: string;
+  mode: QueueMode;
   source: SourceLabel;
   states: string[];
   queue: DistrictGap[];
@@ -134,6 +136,11 @@ const EVIDENCE_FILTERS = [
   { value: 'strong', label: 'Strong' },
 ];
 
+const QUEUE_MODES: { value: QueueMode; label: string }[] = [
+  { value: 'decision', label: 'Decision' },
+  { value: 'missing_info', label: 'Missing info' },
+];
+
 const CAPABILITY_LABELS: Record<string, string> = {
   c_section: 'C-section',
   obgyn: 'OBGYN',
@@ -209,6 +216,7 @@ function mergeActions(base: PlannerActions, patch: Partial<PlannerActions>): Pla
 
 export default function App() {
   const [careNeed, setCareNeed] = useState<CareNeed>('maternal_emergency');
+  const [queueMode, setQueueMode] = useState<QueueMode>('decision');
   const [stateFilter, setStateFilter] = useState('all');
   const [evidenceFilter, setEvidenceFilter] = useState('all');
   const [queueResponse, setQueueResponse] = useState<ReviewQueueResponse | null>(null);
@@ -229,12 +237,22 @@ export default function App() {
   const selectedActions = selectedDistrict ? actions[districtKey(selectedDistrict)] ?? EMPTY_ACTIONS : null;
 
   const queueStats = useMemo(
-    () => ({
-      high: queue.filter((district) => district.planning_priority_score >= 70).length,
-      missing: queue.filter((district) => district.uncertainty_label === 'missing').length,
-      reviewable: queue.filter((district) => district.relevant_claims > 0).length,
-    }),
-    [queue],
+    () =>
+      queueMode === 'missing_info'
+        ? {
+            high: queue.length,
+            missing: queue.filter((district) => {
+              const districtActions = actions[districtKey(district)] ?? EMPTY_ACTIONS;
+              return districtActions.verificationRequested;
+            }).length,
+            reviewable: queue.filter((district) => district.relevant_claims === 0).length,
+          }
+        : {
+            high: queue.filter((district) => district.planning_priority_score >= 70).length,
+            missing: queue.filter((district) => district.uncertainty_label === 'missing').length,
+            reviewable: queue.filter((district) => district.relevant_claims > 0).length,
+          },
+    [actions, queue, queueMode],
   );
 
   const refreshQueue = useCallback(async () => {
@@ -245,6 +263,7 @@ export default function App() {
         careNeed,
         state: stateFilter,
         evidence: evidenceFilter,
+        mode: queueMode,
         limit: '80',
       });
       const payload = await fetchJson<ReviewQueueResponse>(`/api/caregap/review-queue?${params.toString()}`);
@@ -261,7 +280,7 @@ export default function App() {
     } finally {
       setQueueLoading(false);
     }
-  }, [careNeed, evidenceFilter, stateFilter]);
+  }, [careNeed, evidenceFilter, queueMode, stateFilter]);
 
   const refreshActions = useCallback(async () => {
     try {
@@ -311,6 +330,12 @@ export default function App() {
     void refreshQueue();
     void refreshActions();
   }, [refreshActions, refreshQueue]);
+
+  useEffect(() => {
+    if (stateFilter !== 'all' && queueResponse && !queueResponse.states.includes(stateFilter)) {
+      setStateFilter('all');
+    }
+  }, [queueResponse, stateFilter]);
 
   useEffect(() => {
     if (!selectedDistrict) {
@@ -499,7 +524,7 @@ export default function App() {
           </Alert>
         )}
 
-        <section className="grid gap-3 md:grid-cols-[260px_220px_200px_minmax(0,1fr)]">
+        <section className="grid gap-3 md:grid-cols-[260px_220px_200px_260px_minmax(0,1fr)]">
           <Select value={careNeed} onValueChange={(value) => setCareNeed(value as CareNeed)}>
             <SelectTrigger aria-label="Care need">
               <SelectValue placeholder="Care need" />
@@ -537,10 +562,37 @@ export default function App() {
               ))}
             </SelectContent>
           </Select>
+          <div className="grid grid-cols-2 gap-2">
+            {QUEUE_MODES.map((mode) => (
+              <Button
+                key={mode.value}
+                variant={queueMode === mode.value ? 'default' : 'outline'}
+                onClick={() => setQueueMode(mode.value)}
+                type="button"
+              >
+                {mode.value === 'decision' ? (
+                  <ClipboardCheck className="mr-2 h-4 w-4" />
+                ) : (
+                  <ShieldQuestion className="mr-2 h-4 w-4" />
+                )}
+                {mode.label}
+              </Button>
+            ))}
+          </div>
           <div className="grid grid-cols-3 gap-2">
-            <QueueStat label="High" value={queueStats.high} />
-            <QueueStat label="Missing" value={queueStats.missing} />
-            <QueueStat label="Reviewable" value={queueStats.reviewable} />
+            {queueMode === 'missing_info' ? (
+              <>
+                <QueueStat label="Need info" value={queueStats.high} />
+                <QueueStat label="Requested" value={queueStats.missing} />
+                <QueueStat label="No claims" value={queueStats.reviewable} />
+              </>
+            ) : (
+              <>
+                <QueueStat label="High" value={queueStats.high} />
+                <QueueStat label="Missing" value={queueStats.missing} />
+                <QueueStat label="Reviewable" value={queueStats.reviewable} />
+              </>
+            )}
           </div>
         </section>
 
@@ -580,7 +632,11 @@ export default function App() {
                           {district.state}
                         </div>
                       </div>
-                      <Badge variant={displayScore >= 70 ? 'destructive' : 'secondary'}>{priorityLabel(displayScore)}</Badge>
+                      {district.supply_score === 0 ? (
+                        <Badge variant="destructive">Info needed</Badge>
+                      ) : (
+                        <Badge variant={displayScore >= 70 ? 'destructive' : 'secondary'}>{priorityLabel(displayScore)}</Badge>
+                      )}
                     </div>
                     <div className="mt-3 grid grid-cols-[70px_minmax(0,1fr)_54px] items-center gap-2 text-xs">
                       <span className="text-muted-foreground">Priority</span>
@@ -594,7 +650,9 @@ export default function App() {
                       <Badge variant={evidenceVariant(district.uncertainty_label)}>{district.uncertainty_label}</Badge>
                       <Badge variant="outline">{formatNumber(district.relevant_claims)} claims</Badge>
                       {districtActions.shortlisted && <Badge variant="secondary">shortlisted</Badge>}
-                      {districtActions.verificationRequested && <Badge variant="outline">verify</Badge>}
+                      {districtActions.verificationRequested && (
+                        <Badge variant="outline">{district.supply_score === 0 ? 'info requested' : 'verify'}</Badge>
+                      )}
                       {districtActions.overrideScore !== null && <Badge variant="secondary">override</Badge>}
                     </div>
                   </button>
@@ -609,6 +667,7 @@ export default function App() {
             claimsLoading={claimsLoading}
             district={selectedDistrict}
             facilityVerifications={facilityVerifications}
+            queueMode={queueMode}
             onSaveDistrictAction={saveDistrictAction}
             onSaveFacilityVerification={saveFacilityVerification}
             onSaveNote={savePlannerNote}
@@ -655,6 +714,7 @@ function DistrictDetail({
   claimsLoading,
   district,
   facilityVerifications,
+  queueMode,
   onSaveDistrictAction,
   onSaveFacilityVerification,
   onSaveNote,
@@ -668,6 +728,7 @@ function DistrictDetail({
   claimsLoading: boolean;
   district: DistrictGap | null;
   facilityVerifications: Record<string, FacilityVerification>;
+  queueMode: QueueMode;
   onSaveDistrictAction: (district: DistrictGap, patch: Partial<PlannerActions>) => Promise<void>;
   onSaveFacilityVerification: (claim: FacilityClaim, patch: Partial<FacilityVerification>) => Promise<void>;
   onSaveNote: (district: DistrictGap) => Promise<void>;
@@ -692,6 +753,7 @@ function DistrictDetail({
   }
 
   const scoreForDisplay = actions.overrideScore ?? district.planning_priority_score;
+  const isMissingInfoWorkflow = queueMode === 'missing_info' || district.supply_score === 0;
   const districtSaving = savingKey === districtKey(district);
   const noteSaving = savingKey === `${districtKey(district)}:note`;
   const overrideSaving = savingKey === `${districtKey(district)}:override`;
@@ -715,6 +777,15 @@ function DistrictDetail({
           </div>
         </CardHeader>
         <CardContent className="space-y-4">
+          {isMissingInfoWorkflow && (
+            <Alert>
+              <ShieldQuestion className="h-4 w-4" />
+              <AlertDescription>
+                This district has no usable supply evidence for the selected care need. Collect missing facility or source
+                information before making a planning decision.
+              </AlertDescription>
+            </Alert>
+          )}
           {actions.overrideScore !== null && (
             <Alert>
               <AlertDescription>
@@ -734,18 +805,20 @@ function DistrictDetail({
 
       <Card>
         <CardHeader>
-          <CardTitle>Planner Actions</CardTitle>
+          <CardTitle>{isMissingInfoWorkflow ? 'Information Collection' : 'Planner Actions'}</CardTitle>
         </CardHeader>
         <CardContent className="space-y-3">
           <div className="flex flex-wrap gap-2">
-            <Button
-              variant={actions.shortlisted ? 'default' : 'outline'}
-              onClick={() => void onSaveDistrictAction(district, { shortlisted: !actions.shortlisted })}
-              disabled={districtSaving}
-            >
-              <Star className="mr-2 h-4 w-4" />
-              Shortlist
-            </Button>
+            {!isMissingInfoWorkflow && (
+              <Button
+                variant={actions.shortlisted ? 'default' : 'outline'}
+                onClick={() => void onSaveDistrictAction(district, { shortlisted: !actions.shortlisted })}
+                disabled={districtSaving}
+              >
+                <Star className="mr-2 h-4 w-4" />
+                Shortlist
+              </Button>
+            )}
             <Button
               variant={actions.verificationRequested ? 'default' : 'outline'}
               onClick={() =>
@@ -753,8 +826,12 @@ function DistrictDetail({
               }
               disabled={districtSaving}
             >
-              <CheckCircle2 className="mr-2 h-4 w-4" />
-              Field verification
+              {isMissingInfoWorkflow ? (
+                <ShieldQuestion className="mr-2 h-4 w-4" />
+              ) : (
+                <CheckCircle2 className="mr-2 h-4 w-4" />
+              )}
+              {isMissingInfoWorkflow ? 'Request information' : 'Field verification'}
             </Button>
             <Button
               variant={actions.dismissed ? 'destructive' : 'outline'}
@@ -783,42 +860,44 @@ function DistrictDetail({
         </CardContent>
       </Card>
 
-      <Card>
-        <CardHeader>
-          <CardTitle>Score Override</CardTitle>
-        </CardHeader>
-        <CardContent className="space-y-3">
-          <div className="grid gap-3 md:grid-cols-[170px_minmax(0,1fr)]">
-            <input
-              aria-label="Override score"
-              className="h-10 rounded-md border bg-background px-3 text-sm"
-              max={100}
-              min={0}
-              placeholder="Override score"
-              type="number"
-              value={actions.overrideScore ?? ''}
-              onChange={(event) =>
-                onUpdateAction(district, {
-                  overrideScore: event.target.value === '' ? null : Number(event.target.value),
-                })
-              }
-            />
-            <input
-              aria-label="Override reason"
-              className="h-10 rounded-md border bg-background px-3 text-sm"
-              placeholder="Override reason"
-              value={actions.overrideReason}
-              onChange={(event) => onUpdateAction(district, { overrideReason: event.target.value })}
-            />
-          </div>
-          <div className="flex justify-end">
-            <Button variant="outline" onClick={() => void onSaveOverride(district)} disabled={overrideSaving}>
-              <Save className="mr-2 h-4 w-4" />
-              Save override
-            </Button>
-          </div>
-        </CardContent>
-      </Card>
+      {!isMissingInfoWorkflow && (
+        <Card>
+          <CardHeader>
+            <CardTitle>Score Override</CardTitle>
+          </CardHeader>
+          <CardContent className="space-y-3">
+            <div className="grid gap-3 md:grid-cols-[170px_minmax(0,1fr)]">
+              <input
+                aria-label="Override score"
+                className="h-10 rounded-md border bg-background px-3 text-sm"
+                max={100}
+                min={0}
+                placeholder="Override score"
+                type="number"
+                value={actions.overrideScore ?? ''}
+                onChange={(event) =>
+                  onUpdateAction(district, {
+                    overrideScore: event.target.value === '' ? null : Number(event.target.value),
+                  })
+                }
+              />
+              <input
+                aria-label="Override reason"
+                className="h-10 rounded-md border bg-background px-3 text-sm"
+                placeholder="Override reason"
+                value={actions.overrideReason}
+                onChange={(event) => onUpdateAction(district, { overrideReason: event.target.value })}
+              />
+            </div>
+            <div className="flex justify-end">
+              <Button variant="outline" onClick={() => void onSaveOverride(district)} disabled={overrideSaving}>
+                <Save className="mr-2 h-4 w-4" />
+                Save override
+              </Button>
+            </div>
+          </CardContent>
+        </Card>
+      )}
 
       <Card>
         <CardHeader>
@@ -831,7 +910,11 @@ function DistrictDetail({
             <Empty>
               <EmptyHeader>
                 <EmptyTitle>No facility claims found</EmptyTitle>
-                <EmptyDescription>Evidence is missing for this care need in the prepared claims table.</EmptyDescription>
+                <EmptyDescription>
+                  {isMissingInfoWorkflow
+                    ? 'Add facility capability or source data, then regenerate the CareGap claims and district gaps.'
+                    : 'Evidence is missing for this care need in the prepared claims table.'}
+                </EmptyDescription>
               </EmptyHeader>
             </Empty>
           ) : (
