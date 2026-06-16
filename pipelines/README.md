@@ -31,6 +31,7 @@ pipelines/
     export_health_access_records.py # export source Lakebase table to CSV
     rebuild_health_access_records_from_uc.py # rebuild source snapshot from UC tables
     build_health_access_facility_enriched.py # create facility-grain joined UC table
+    load_health_access_facility_enriched.py # mirror enriched UC table into Lakebase
     load_health_access_records.py # load rebuilt snapshot into Lakebase
     repair_health_access_records.py # quarantine structurally invalid source rows
     validate_health_access_records.py # validate source CSV before extraction
@@ -188,6 +189,15 @@ python pipelines/scripts/build_health_access_facility_enriched.py \
 ```
 
 The builder fails if the final row count changes from the valid facility count or if duplicate `facility_id` rows appear, which catches accidental one-to-many joins from the pincode table.
+
+Mirror the enriched table into Lakebase for the Databricks App health and facility-detail routes:
+
+```bash
+python pipelines/scripts/load_health_access_facility_enriched.py \
+  --output data/health_access_facility_enriched.csv
+```
+
+This exports `workspace.default.health_access_facility_enriched` through the Databricks SQL Statements API, writes a local CSV snapshot, and replaces `public.health_access_facility_enriched` in Lakebase. The app still falls back to legacy prepared tables when the enriched mirror is unavailable.
 
 If you only need a guarded Lakebase-side cleanup for obvious structural failures in the existing table, run:
 

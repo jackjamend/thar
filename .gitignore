@@ -5,6 +5,7 @@ dist/
 build/
 .env
 .databricks/
+.python-deps/
 .smoke-test/
 test-results/
 playwright-report/

@@ -121,7 +121,7 @@ The main analysis-ready Unity Catalog table is:
 workspace.default.health_access_facility_enriched
 ```
 
-It is built from the DAIS 2026 facility, pincode, and NFHS district indicator source tables. The source dataset catalog is Delta Sharing/read-only, so derived outputs must be written to a managed writable catalog such as `workspace.default`.
+It is built from the DAIS 2026 facility, pincode, and NFHS district indicator source tables. The source dataset catalog is Delta Sharing/read-only, so derived outputs must be written to a managed writable catalog such as `workspace.default`. The app reads the Lakebase mirror `public.health_access_facility_enriched`, which can be refreshed with `pipelines/scripts/load_health_access_facility_enriched.py`.
 
 For recreation steps, validation counts, and Databricks authentication notes, see:
 

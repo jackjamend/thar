@@ -125,6 +125,23 @@ python pipelines/scripts/build_health_access_facility_enriched.py \
   --output-table workspace.default.health_access_facility_enriched
 ```
 
+## Recreate The App Mirror
+
+The Databricks App reads the enriched data from Lakebase:
+
+```text
+public.health_access_facility_enriched
+```
+
+After the Unity Catalog table is rebuilt, refresh the Lakebase mirror:
+
+```bash
+python pipelines/scripts/load_health_access_facility_enriched.py \
+  --output data/health_access_facility_enriched.csv
+```
+
+This script exports `workspace.default.health_access_facility_enriched` to `data/health_access_facility_enriched.csv`, recreates `public.health_access_facility_enriched`, and adds lookup indexes for state, district, facility type, pincode status, and district status. It requires a valid Databricks OAuth profile for the SQL export and a short-lived Lakebase database credential for the Postgres load.
+
 ## Validation Results From Successful Build
 
 Successful build run:

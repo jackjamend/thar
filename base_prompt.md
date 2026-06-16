@@ -62,6 +62,7 @@ The current repo is a Databricks App using:
 - Lakebase-backed queries
 - A table named `public.health_access_records`
 - A Unity Catalog enriched analysis table named `workspace.default.health_access_facility_enriched`
+- A Lakebase app mirror named `public.health_access_facility_enriched`
 - Python pipeline code under `dais-hackathon/pipelines/`
 
 The current app already has:
@@ -86,6 +87,7 @@ Use these verified facts from the current enriched build to avoid repeating data
   - `databricks_virtue_foundation_dataset_dais_2026.virtue_foundation_dataset.nfhs_5_district_health_indicators`
 - The source catalog is Delta Sharing and read-only. Write derived tables to a managed writable catalog, currently `workspace.default`.
 - The current enriched table is `workspace.default.health_access_facility_enriched`.
+- The Databricks App reads the Lakebase mirror `public.health_access_facility_enriched`; refresh it with `dais-hackathon/pipelines/scripts/load_health_access_facility_enriched.py`.
 - The enriched table contains 9,989 rows and 9,989 distinct `facility_id` values.
 - Pincode matching:
   - 9,707 facility rows have matched pincode context.

@@ -78,6 +78,7 @@ const CARE_NEED_CAPABILITIES: Record<string, Set<string>> = {
 const DATA_DIR = path.join(process.cwd(), 'data');
 const GAPS_CSV = path.join(DATA_DIR, 'caregap_district_gaps.csv');
 const CLAIMS_CSV = path.join(DATA_DIR, 'caregap_facility_claims.csv');
+const HEALTH_ENRICHED_TABLE = 'public.health_access_facility_enriched';
 
 const SETUP_SQL = [
   'CREATE SCHEMA IF NOT EXISTS app',
@@ -475,32 +476,34 @@ async function loadFacilityClaims(appkit: AppKitWithLakebase, query: z.infer<typ
     const result = await appkit.lakebase.query(
       `
         SELECT
-          facility_id,
-          facility_name,
-          state,
-          district_or_city,
-          district_source,
-          capability,
-          claim_status,
-          confidence,
-          evidence_text,
-          uncertainty_reason,
-          extraction_method,
-          updated_at
-        FROM public.caregap_facility_claims
+          claims.facility_id,
+          COALESCE(NULLIF(TRIM(enriched.facility_name), ''), claims.facility_name) AS facility_name,
+          COALESCE(NULLIF(TRIM(enriched.analysis_state), ''), claims.state) AS state,
+          COALESCE(NULLIF(TRIM(enriched.analysis_district), ''), claims.district_or_city) AS district_or_city,
+          COALESCE(NULLIF(TRIM(enriched.district_source), ''), claims.district_source) AS district_source,
+          claims.capability,
+          claims.claim_status,
+          claims.confidence,
+          claims.evidence_text,
+          claims.uncertainty_reason,
+          claims.extraction_method,
+          claims.updated_at
+        FROM public.caregap_facility_claims claims
+        LEFT JOIN ${HEALTH_ENRICHED_TABLE} enriched
+          ON enriched.facility_id = claims.facility_id
         WHERE
-          state = $1
-          AND LOWER(TRIM(district_or_city)) = LOWER(TRIM($2))
-          AND capability = ANY($3::text[])
+          COALESCE(NULLIF(TRIM(enriched.analysis_state), ''), claims.state) = $1
+          AND LOWER(TRIM(COALESCE(NULLIF(TRIM(enriched.analysis_district), ''), claims.district_or_city))) = LOWER(TRIM($2))
+          AND claims.capability = ANY($3::text[])
         ORDER BY
-          CASE confidence
+          CASE claims.confidence
             WHEN 'strong' THEN 3
             WHEN 'partial' THEN 2
             WHEN 'weak' THEN 1
             ELSE 0
           END DESC,
-          facility_name,
-          capability
+          COALESCE(NULLIF(TRIM(enriched.facility_name), ''), claims.facility_name),
+          claims.capability
       `,
       [query.state, query.district, capabilities],
     );
