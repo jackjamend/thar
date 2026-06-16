@@ -61,6 +61,7 @@ The current repo is a Databricks App using:
 - Express server routes
 - Lakebase-backed queries
 - A table named `public.health_access_records`
+- A Unity Catalog enriched analysis table named `workspace.default.health_access_facility_enriched`
 - Python pipeline code under `dais-hackathon/pipelines/`
 
 The current app already has:
@@ -77,27 +78,25 @@ Prefer extending existing patterns rather than introducing a new architecture.
 
 ## Known Data Findings
 
-Use these verified facts from the current Lakebase snapshot to avoid repeating early data-discovery work:
+Use these verified facts from the current enriched build to avoid repeating data-discovery work:
 
-- `public.health_access_records` currently contains 176,408 rows:
-  - 10,077 facility rows.
-  - 706 district indicator rows.
-  - 165,625 pincode rows.
-- A local CSV snapshot exists at `dais-hackathon/data/health_access_records.csv`. Use it first for local verification and pipeline development unless the Lakebase source data has changed.
-- Facility descriptions are highly usable: 9,997/10,077 facility rows have non-empty `description` text, with median length around 114 characters.
-- Facility rows do not currently have source `district` values: 0/10,077 are populated.
-- Facility rows usually do have `pincode`: 10,019/10,077 are populated.
-- Pincode rows include district and state. Use pincode records to infer facility districts before district-level scoring or claim aggregation.
-- Pincode inference currently maps about 94.9% of facilities to districts: 9,559/10,077 facilities.
-- Maternal Emergency Care has enough deterministic keyword coverage for a demo:
-  - C-section: 394 facilities.
-  - OBGYN: 563 facilities.
-  - NICU: 127 facilities after tightening broad pediatric partial matches.
-  - Blood bank: 44 facilities after tightening generic blood-test partial matches.
-  - Ambulance: 99 facilities.
-  - 24x7 emergency: 527 facilities.
-- Strong evidence-rich demo candidates include Deoghar, Jharkhand; Saharsa, Bihar; Shahjahanpur, Uttar Pradesh; and Gaya, Bihar.
-- Likely high-risk medical-desert review candidates include West Khasi Hills, Meghalaya; Pakur, Jharkhand; Bijapur, Chhattisgarh; Bastar, Chhattisgarh; and Araria, Bihar.
+- The three Unity Catalog source tables are:
+  - `databricks_virtue_foundation_dataset_dais_2026.virtue_foundation_dataset.facilities`
+  - `databricks_virtue_foundation_dataset_dais_2026.virtue_foundation_dataset.india_post_pincode_directory`
+  - `databricks_virtue_foundation_dataset_dais_2026.virtue_foundation_dataset.nfhs_5_district_health_indicators`
+- The source catalog is Delta Sharing and read-only. Write derived tables to a managed writable catalog, currently `workspace.default`.
+- The current enriched table is `workspace.default.health_access_facility_enriched`.
+- The enriched table contains 9,989 rows and 9,989 distinct `facility_id` values.
+- Pincode matching:
+  - 9,707 facility rows have matched pincode context.
+  - 282 facility rows use city fallback because pincode context is missing.
+- District/NFHS matching:
+  - 6,199 facility rows have matched NFHS district indicators.
+  - 3,790 facility rows have location context but no matched NFHS district indicators.
+- Facility rows generally do not have source `district` values. District linkage is inferred from pincode first, then city fallback.
+- The build script is `dais-hackathon/pipelines/scripts/build_health_access_facility_enriched.py`.
+- Recreate instructions live in `dais-hackathon/pipelines/health_access_facility_enriched_runbook.md`.
+- A local mixed-record CSV snapshot still exists at `dais-hackathon/data/health_access_records.csv` for legacy pipeline compatibility, but prefer the enriched table for new analysis and inference work.
 
 Lakebase export note:
 
@@ -111,6 +110,19 @@ databricks postgres generate-database-credential \
 ```
 
 - Connect as the current Databricks user, using the generated token as `PGPASSWORD`.
+
+Codex Databricks auth note:
+
+- The Codex sandbox cannot read the Databricks OAuth cache in the user home directory.
+- The user needed to authenticate the Codex session from a web browser:
+
+```bash
+databricks auth login \
+  --host https://dbc-e3cabb27-f036.cloud.databricks.com \
+  --profile dais-2026
+```
+
+- After browser login, Databricks CLI commands may still need elevated execution so they can read the OAuth cache.
 
 ## Python Pipeline Architecture
 

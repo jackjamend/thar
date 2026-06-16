@@ -113,6 +113,21 @@ Run the production build:
 npm start
 ```
 
+## Data Pipeline
+
+The main analysis-ready Unity Catalog table is:
+
+```text
+workspace.default.health_access_facility_enriched
+```
+
+It is built from the DAIS 2026 facility, pincode, and NFHS district indicator source tables. The source dataset catalog is Delta Sharing/read-only, so derived outputs must be written to a managed writable catalog such as `workspace.default`.
+
+For recreation steps, validation counts, and Databricks authentication notes, see:
+
+- `pipelines/health_access_facility_enriched_runbook.md`
+- `pipelines/README.md`
+
 ## Code Quality
 
 There are a few commands to help you with code quality:
