@@ -3,9 +3,11 @@ from __future__ import annotations
 from collections import defaultdict
 from dataclasses import dataclass
 from datetime import datetime, timezone
+import re
 from typing import Iterable
 
 from .capabilities import CARE_NEEDS
+from .records import canonical_district, canonical_state
 
 
 CONFIDENCE_WEIGHT = {
@@ -82,17 +84,18 @@ def score_district_gaps(
         if claim.get("capability") not in capability_keys:
             continue
 
+        state = canonical_state(claim.get("state")) or claim.get("state", "")
         location_key = (
-            _norm(claim.get("state", "")),
-            _norm(claim.get("district_or_city", "")),
+            _norm(state),
+            _norm(canonical_district(state, claim.get("district_or_city", ""))),
         )
         claim_signals_by_district[location_key].add(claim)
 
     scored: list[dict[str, str]] = []
     for district in districts:
-        state = district.get("state", "")
+        state = canonical_state(district.get("state")) or district.get("state", "")
         district_name = district.get("entity_name", "")
-        location_key = (_norm(state), _norm(district_name))
+        location_key = (_norm(state), _norm(canonical_district(state, district_name)))
         claim_signal = claim_signals_by_district[location_key]
 
         risk_score = _risk_score(district)
@@ -243,7 +246,7 @@ def _float(value: str | None) -> float | None:
 
 
 def _norm(value: str | None) -> str:
-    return (value or "").strip().lower()
+    return re.sub(r"[^a-z0-9]+", " ", (value or "").strip().lower()).strip()
 
 
 def _clamp(value: float, low: float = 0.0, high: float = 100.0) -> float:

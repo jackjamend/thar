@@ -84,6 +84,115 @@ STATE_ALIASES.update(
     }
 )
 
+DISTRICT_ALIASES = {
+    ("Andhra Pradesh", "eluru"): "West Godavari",
+    ("Andhra Pradesh", "anakapalli"): "Visakhapatnam",
+    ("Andhra Pradesh", "annamayya"): "Y.S.R.",
+    ("Andhra Pradesh", "bhimavaram"): "West Godavari",
+    ("Andhra Pradesh", "kakinada"): "East Godavari",
+    ("Andhra Pradesh", "madanapalle"): "Chittoor",
+    ("Andhra Pradesh", "nandyal"): "Kurnool",
+    ("Andhra Pradesh", "ntr"): "Krishna",
+    ("Andhra Pradesh", "palnadu"): "Guntur",
+    ("Andhra Pradesh", "rajamahendravaram"): "East Godavari",
+    ("Andhra Pradesh", "spsr nellore"): "Sri Potti Sriramulu Nello",
+    ("Andhra Pradesh", "sri sathya sai"): "Anantapur",
+    ("Andhra Pradesh", "tirupati"): "Chittoor",
+    ("Andhra Pradesh", "vijayawada"): "Krishna",
+    ("Andhra Pradesh", "visakhapatanam"): "Visakhapatnam",
+    ("Andhra Pradesh", "visakhatapanam"): "Visakhapatnam",
+    ("Assam", "kamrup metro"): "Kamrup Metropolitan",
+    ("Delhi", "delhi"): "New Delhi",
+    ("Gujarat", "ahmedabad"): "Ahmadabad",
+    ("Gujarat", "arvalli"): "Aravali",
+    ("Gujarat", "kabilpore"): "Navsari",
+    ("Haryana", "gurugram"): "Gurgaon",
+    ("Jammu & Kashmir", "budgam"): "Badgam",
+    ("Jharkhand", "east singhbhum"): "Purbi Singhbhum",
+    ("Jharkhand", "east singhbum"): "Purbi Singhbhum",
+    ("Jharkhand", "jamshedpur"): "Purbi Singhbhum",
+    ("Karnataka", "ballari"): "Bellary",
+    ("Karnataka", "belagavi"): "Belgaum",
+    ("Karnataka", "bengaluru"): "Bangalore",
+    ("Karnataka", "bengaluru rural"): "Bangalore Rural",
+    ("Karnataka", "bengaluru urban"): "Bangalore",
+    ("Karnataka", "davangere"): "Davanagere",
+    ("Karnataka", "kalaburagi"): "Gulbarga",
+    ("Karnataka", "mysuru"): "Mysore",
+    ("Karnataka", "shivamogga"): "Shimoga",
+    ("Karnataka", "tumakuru"): "Tumkur",
+    ("Karnataka", "vemagal"): "Kolar",
+    ("Karnataka", "vijaynagar"): "Bellary",
+    ("Karnataka", "vijayapura"): "Bijapur",
+    ("Karnataka", "hubballi"): "Dharwad",
+    ("Kerala", "kuttippuram"): "Malappuram",
+    ("Kerala", "muvattupuzha"): "Ernakulam",
+    ("Madhya Pradesh", "east nimar"): "Khandwa (East Nimar)",
+    ("Madhya Pradesh", "khargone"): "Khargone (West Nimar)",
+    ("Madhya Pradesh", "narsinghpur"): "Narsimhapur",
+    ("Madhya Pradesh", "napier town"): "Jabalpur",
+    ("Maharashtra", "ahmednagar"): "Ahmadnagar",
+    ("Maharashtra", "beed"): "Bid",
+    ("Maharashtra", "buldhana"): "Buldana",
+    ("Maharashtra", "gondia"): "Gondiya",
+    ("Maharashtra", "kurla"): "Mumbai Suburban",
+    ("Maharashtra", "raigad"): "Raigarh",
+    ("Maharashtra", "sawangi"): "Wardha",
+    ("Maharashtra", "ulhasnagar"): "Thane",
+    ("Maharashtra", "goregaon west"): "Mumbai Suburban",
+    ("Puducherry", "pondicherry"): "Puducherry",
+    ("Punjab", "firozepur"): "Firozpur",
+    ("Punjab", "malerkotla"): "Sangrur",
+    ("Punjab", "s a s nagar"): "Sahibzada Ajit Singh Nagar",
+    ("Punjab", "sas nagar"): "Sahibzada Ajit Singh Nagar",
+    ("Punjab", "sri muktsar sahib"): "Muktsar",
+    ("Punjab", "urmar tanda"): "Hoshiarpur",
+    ("Rajasthan", "jalore"): "Jalor",
+    ("Rajasthan", "jhunjhunu"): "Jhunjhunun",
+    ("Tamil Nadu", "chengalpattu"): "Kancheepuram",
+    ("Tamil Nadu", "aminjikarai chennai"): "Chennai",
+    ("Tamil Nadu", "kallakurichi"): "Viluppuram",
+    ("Tamil Nadu", "kanchipuram"): "Kancheepuram",
+    ("Tamil Nadu", "ranipet"): "Vellore",
+    ("Tamil Nadu", "tenkasi"): "Tirunelveli",
+    ("Tamil Nadu", "tirupathur"): "Vellore",
+    ("Tamil Nadu", "tuticorin"): "Thoothukkudi",
+    ("Telangana", "hanumakonda"): "Warangal Urban",
+    ("Telangana", "moinabad"): "Ranga Reddy",
+    ("Uttar Pradesh", "ayodhya"): "Faizabad",
+    ("Uttar Pradesh", "bhadohi"): "Sant Ravidas Nagar (Bhadohi)",
+    ("Uttar Pradesh", "greater noida"): "Gautam Buddha Nagar",
+    ("Uttar Pradesh", "hathras"): "Mahamaya Nagar",
+    ("Uttar Pradesh", "kushi nagar"): "Kushinagar",
+    ("Uttar Pradesh", "maharajganj"): "Mahrajganj",
+    ("Uttar Pradesh", "amroha"): "Jyotiba Phule Nagar",
+    ("Uttar Pradesh", "prayagraj"): "Allahabad",
+    ("Uttar Pradesh", "siddhar nagar"): "Siddharthnagar",
+    ("Uttar Pradesh", "siddharth nagar"): "Siddharthnagar",
+    ("Uttarakhand", "haridwar"): "Hardwar",
+    ("Uttarakhand", "udam singh nagar"): "Udham Singh Nagar",
+    ("West Bengal", "24 paraganas north"): "North Twenty Four Pargana",
+    ("West Bengal", "24 paraganas south"): "South Twenty Four Pargana",
+    ("West Bengal", "24 parganas north"): "North Twenty Four Pargana",
+    ("West Bengal", "24 parganas south"): "South Twenty Four Pargana",
+    ("West Bengal", "coochbehar"): "Koch Bihar",
+    ("West Bengal", "barddhaman"): "Paschim Barddhaman",
+    ("West Bengal", "darjeeling"): "Darjiling",
+    ("West Bengal", "dinajpur uttar"): "Uttar Dinajpur",
+    ("West Bengal", "hooghly"): "Hugli",
+    ("West Bengal", "howrah"): "Haora",
+    ("West Bengal", "medinipur west"): "Paschim Medinipur",
+    ("West Bengal", "paschim bardhaman"): "Paschim Barddhaman",
+    ("West Bengal", "purba bardhaman"): "Paschim Barddhaman",
+    ("West Bengal", "purulia"): "Puruliya",
+    ("Bihar", "purbi champaran"): "Purba Champaran",
+    ("Assam", "marigaon"): "Morigaon",
+    ("Meghalaya", "ri bhoi"): "Ribhoi",
+    ("Chhattisgarh", "kabirdham"): "Kabeerdham",
+    ("Chhattisgarh", "kawardha"): "Kabeerdham",
+    ("Rajasthan", "chittorgarh"): "Chittaurgarh",
+}
+
 
 def read_health_access_input(path: str | Path, *, district_input: str | Path | None = None) -> list[dict[str, str]]:
     rows = _read_csv(path)
@@ -104,6 +213,12 @@ def records_from_input(rows: list[dict[str, str]], *, district_input: str | Path
 
 def canonical_state(value: str | None) -> str:
     return STATE_ALIASES.get(_state_key(value), "")
+
+
+def canonical_district(state: str | None, district: str | None) -> str:
+    value = _clean(district)
+    canonical = canonical_state(state) or _clean(state)
+    return DISTRICT_ALIASES.get((canonical, _state_key(value)), value)
 
 
 def noncanonical_states(rows: list[dict[str, str]], field: str) -> dict[str, int]:
@@ -128,7 +243,7 @@ def _project_enriched_rows(rows: list[dict[str, str]]) -> list[dict[str, str]]:
         records.append(_enriched_facility_record(row))
 
         state = canonical_state(row.get("analysis_state"))
-        district = _clean(row.get("analysis_district"))
+        district = canonical_district(state, row.get("analysis_district"))
         if not state or not district:
             continue
 
@@ -162,7 +277,7 @@ def _legacy_district_record(row: dict[str, str]) -> dict[str, str]:
     return {
         **row,
         "state": state,
-        "district": row.get("district") or row.get("entity_name", ""),
+        "district": canonical_district(state, row.get("district") or row.get("entity_name", "")),
     }
 
 
@@ -172,7 +287,7 @@ def _enriched_facility_record(row: dict[str, str]) -> dict[str, str]:
         "record_type": "facility",
         "entity_name": row.get("facility_name", ""),
         "state": canonical_state(row.get("analysis_state")),
-        "district": row.get("analysis_district", ""),
+        "district": canonical_district(row.get("analysis_state"), row.get("analysis_district")),
         "city": row.get("source_city", ""),
         "pincode": row.get("source_pincode", ""),
         "latitude": row.get("latitude", ""),

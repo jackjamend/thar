@@ -793,6 +793,10 @@ function numberField(value: string) {
 function numericField(value: unknown) {
   if (typeof value === 'number') return value;
   if (typeof value === 'string') return numberField(value);
+  if (value && typeof value === 'object' && 'toString' in value) {
+    const text = (value as { toString(): string }).toString();
+    return text === '[object Object]' ? 0 : numberField(text);
+  }
   return 0;
 }
 
