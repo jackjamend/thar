@@ -54,6 +54,46 @@ const decisions: StoredDecision[] = [];
 const notes: StoredNote[] = [];
 const verifications: StoredVerification[] = [];
 const routes = new Map<string, Handler>();
+const gapRows = [
+  {
+    district_id: 'district:ready',
+    district_name: 'Ready District',
+    state: 'Kerala',
+    care_need: 'maternal_emergency',
+    planning_priority_score: '71.0',
+    risk_score: '66.0',
+    supply_score: '25.0',
+    evidence_score: '40.0',
+    data_quality_score: '60.0',
+    relevant_claims: '2',
+    strong_claims: '1',
+    partial_claims: '1',
+    pincode_inferred_claims: '2',
+    city_fallback_claims: '0',
+    uncertainty_label: 'partial',
+    explanation: 'Evidence exists.',
+    updated_at: '2026-06-15T00:00:00.000Z',
+  },
+  {
+    district_id: 'district:missing',
+    district_name: 'Missing District',
+    state: 'Kerala',
+    care_need: 'maternal_emergency',
+    planning_priority_score: '64.0',
+    risk_score: '64.0',
+    supply_score: '0.0',
+    evidence_score: '0.0',
+    data_quality_score: '20.0',
+    relevant_claims: '0',
+    strong_claims: '0',
+    partial_claims: '0',
+    pincode_inferred_claims: '0',
+    city_fallback_claims: '0',
+    uncertainty_label: 'missing',
+    explanation: 'No supply evidence exists.',
+    updated_at: '2026-06-15T00:00:00.000Z',
+  },
+];
 
 beforeEach(() => {
   decisions.length = 0;
@@ -76,6 +116,30 @@ beforeEach(() => {
 });
 
 describe('CareGap planner persistence routes', () => {
+  test('splits review queue into decision and missing-info workflows', async () => {
+    const decisionResponse = await callRoute('GET', '/api/caregap/review-queue', undefined, {
+      careNeed: 'maternal_emergency',
+      mode: 'decision',
+    });
+    expect(decisionResponse.statusCode).toBe(200);
+    expect(decisionResponse.payload).toMatchObject({
+      careNeed: 'maternal_emergency',
+      mode: 'decision',
+      queue: [{ district_id: 'district:ready', supply_score: 25 }],
+    });
+
+    const missingResponse = await callRoute('GET', '/api/caregap/review-queue', undefined, {
+      careNeed: 'maternal_emergency',
+      mode: 'missing_info',
+    });
+    expect(missingResponse.statusCode).toBe(200);
+    expect(missingResponse.payload).toMatchObject({
+      careNeed: 'maternal_emergency',
+      mode: 'missing_info',
+      queue: [{ district_id: 'district:missing', supply_score: 0 }],
+    });
+  });
+
   test('saves district actions, notes, and facility verification requests', async () => {
     const actionResponse = await callRoute('PUT', '/api/caregap/district-actions', {
       careNeed: 'maternal_emergency',
@@ -135,6 +199,20 @@ async function callRoute(method: string, path: string, body?: unknown, query: Re
 }
 
 async function mockLakebaseQuery(text: string, params: unknown[] = []) {
+  if (text.includes('FROM public.caregap_district_gaps')) {
+    const careNeed = String(params[0] ?? 'maternal_emergency');
+    const mode = text.includes('SELECT DISTINCT state') ? String(params[1] ?? 'decision') : String(params[4] ?? 'decision');
+    const rows = gapRows
+      .filter((row) => row.care_need === careNeed)
+      .filter((row) => (mode === 'missing_info' ? Number(row.supply_score) === 0 : Number(row.supply_score) > 0));
+
+    if (text.includes('SELECT DISTINCT state')) {
+      return { rows: [...new Set(rows.map((row) => row.state))].sort().map((state) => ({ state })) };
+    }
+
+    return { rows };
+  }
+
   if (text.includes('INSERT INTO app.caregap_review_decisions')) {
     const row: StoredDecision = {
       care_need: String(params[0]),

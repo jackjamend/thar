@@ -18,6 +18,7 @@ const QueueQuery = z.object({
   careNeed: z.string().optional().default('maternal_emergency'),
   state: z.string().optional().default('all'),
   evidence: z.string().optional().default('all'),
+  mode: z.enum(['decision', 'missing_info']).optional().default('decision'),
   limit: z.coerce.number().int().min(1).max(200).optional().default(60),
 });
 
@@ -401,13 +402,14 @@ async function setupCareGapSchema(appkit: AppKitWithLakebase) {
 async function loadReviewQueue(appkit: AppKitWithLakebase, query: z.infer<typeof QueueQuery>) {
   try {
     const rows = await queryLakebaseGaps(appkit, query);
-    const states = await queryLakebaseStates(appkit, query.careNeed);
-    return { careNeed: query.careNeed, source: 'lakebase', states, queue: rows.map(mapDistrictGap) };
+    const states = await queryLakebaseStates(appkit, query);
+    return { careNeed: query.careNeed, mode: query.mode, source: 'lakebase', states, queue: rows.map(mapDistrictGap) };
   } catch (err) {
     console.warn('[caregap] Falling back to CSV review queue:', messageFromError(err, 'unknown error'));
     const rows = await readCsv(GAPS_CSV);
     const queue = rows
       .filter((row) => row.care_need === query.careNeed)
+      .filter((row) => matchesQueueMode(numberField(row.supply_score), query.mode))
       .filter((row) => query.state === 'all' || row.state === query.state)
       .filter((row) => query.evidence === 'all' || row.uncertainty_label === query.evidence)
       .sort((a, b) => numberField(b.planning_priority_score) - numberField(a.planning_priority_score))
@@ -416,8 +418,16 @@ async function loadReviewQueue(appkit: AppKitWithLakebase, query: z.infer<typeof
 
     return {
       careNeed: query.careNeed,
+      mode: query.mode,
       source: 'csv-fallback',
-      states: [...new Set(rows.filter((row) => row.care_need === query.careNeed).map((row) => row.state))].sort(),
+      states: [
+        ...new Set(
+          rows
+            .filter((row) => row.care_need === query.careNeed)
+            .filter((row) => matchesQueueMode(numberField(row.supply_score), query.mode))
+            .map((row) => row.state),
+        ),
+      ].sort(),
       queue,
     };
   }
@@ -449,23 +459,28 @@ async function queryLakebaseGaps(appkit: AppKitWithLakebase, query: z.infer<type
         care_need = $1
         AND ($2 = 'all' OR state = $2)
         AND ($3 = 'all' OR uncertainty_label = $3)
+        AND (($5 = 'missing_info' AND supply_score::numeric = 0) OR ($5 = 'decision' AND supply_score::numeric > 0))
       ORDER BY planning_priority_score::numeric DESC
       LIMIT $4
     `,
-    [query.careNeed, query.state, query.evidence, query.limit],
+    [query.careNeed, query.state, query.evidence, query.limit, query.mode],
   );
   return result.rows;
 }
 
-async function queryLakebaseStates(appkit: AppKitWithLakebase, careNeed: string) {
+async function queryLakebaseStates(appkit: AppKitWithLakebase, query: z.infer<typeof QueueQuery>) {
   const result = await appkit.lakebase.query(
     `
       SELECT DISTINCT state
       FROM public.caregap_district_gaps
-      WHERE care_need = $1 AND state IS NOT NULL AND state <> ''
+      WHERE
+        care_need = $1
+        AND state IS NOT NULL
+        AND state <> ''
+        AND (($2 = 'missing_info' AND supply_score::numeric = 0) OR ($2 = 'decision' AND supply_score::numeric > 0))
       ORDER BY state
     `,
-    [careNeed],
+    [query.careNeed, query.mode],
   );
   return result.rows.map((row) => stringField(row.state)).filter(Boolean);
 }
@@ -813,6 +828,10 @@ function confidenceRank(value: string) {
   if (value === 'partial') return 2;
   if (value === 'weak') return 1;
   return 0;
+}
+
+function matchesQueueMode(supplyScore: number, mode: z.infer<typeof QueueQuery>['mode']) {
+  return mode === 'missing_info' ? supplyScore === 0 : supplyScore > 0;
 }
 
 function normalized(value: string) {
